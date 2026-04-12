@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-from shared.types import ProblemPacket, SolutionPlan
+from src.shared.types import ProblemPacket, SolutionPlan
 
 logger = logging.getLogger("solver.solution_generator")
 

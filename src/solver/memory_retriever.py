@@ -15,7 +15,7 @@ import uuid
 import chromadb
 import requests
 
-from shared.types import ProblemPacket, SolutionPlan
+from src.shared.types import ProblemPacket, SolutionPlan
 
 logger = logging.getLogger("solver.memory_retriever")
 

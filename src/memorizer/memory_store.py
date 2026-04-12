@@ -15,7 +15,7 @@ from typing import Optional
 import chromadb
 import requests
 
-from shared.types import MemoryPath, ProblemPacket, SolutionPlan, VerificationResult
+from src.shared.types import MemoryPath, ProblemPacket, SolutionPlan, VerificationResult
 
 logger = logging.getLogger("memorizer.memory_store")
 

@@ -30,10 +30,10 @@ from pathlib import Path
 
 import redis
 
-from shared.types import ProblemPacket
-from formulator.criterion_generator import CriterionGenerator
-from formulator.scope_classifier import ScopeClassifier
-from formulator.priority_ranker import PriorityRanker
+from src.shared.types import ProblemPacket
+from src.formulator.criterion_generator import CriterionGenerator
+from src.formulator.scope_classifier import ScopeClassifier
+from src.formulator.priority_ranker import PriorityRanker
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR = Path(os.path.expanduser("~/curiosity/logs"))

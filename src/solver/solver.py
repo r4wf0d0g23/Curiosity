@@ -32,9 +32,9 @@ from typing import Optional
 
 import redis
 
-from shared.types import ProblemPacket, SolutionPlan
-from solver.memory_retriever import MemoryRetriever, SIMILARITY_THRESHOLD
-from solver.solution_generator import SolutionGenerator
+from src.shared.types import ProblemPacket, SolutionPlan
+from src.solver.memory_retriever import MemoryRetriever, SIMILARITY_THRESHOLD
+from src.solver.solution_generator import SolutionGenerator
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR = Path(os.path.expanduser("~/curiosity/logs"))

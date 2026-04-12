@@ -15,13 +15,13 @@ from pathlib import Path
 
 import redis
 
-from shared.types import (
+from src.shared.types import (
     MemoryPath,
     ProblemPacket,
     SolutionPlan,
     VerificationResult,
 )
-from memorizer.memory_store import MemoryStore
+from src.memorizer.memory_store import MemoryStore
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR = Path(os.path.expanduser("~/curiosity/logs"))

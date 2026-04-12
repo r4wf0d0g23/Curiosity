@@ -32,9 +32,9 @@ import redis
 # Allow running as `python3 assessor.py` from the src/ tree
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from shared.types import ProblemPacket
-from assessor.benchmark_loader import BenchmarkLoader
-from assessor.probe_runner import ProbeRunner
+from src.shared.types import ProblemPacket
+from src.assessor.benchmark_loader import BenchmarkLoader
+from src.assessor.probe_runner import ProbeRunner
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
