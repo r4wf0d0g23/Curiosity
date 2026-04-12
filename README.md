@@ -41,6 +41,26 @@ The loop never terminates. Curiosity is the fuel.
 
 All versions tracked here: [github.com/r4wf0d0g23/Curiosity](https://github.com/r4wf0d0g23/Curiosity)
 
+## Quick Start (DGX GB10)
+
+```bash
+# 1. Clone
+git clone https://github.com/r4wf0d0g23/Curiosity ~/curiosity_code
+cd ~/curiosity_code
+
+# 2. Install deps
+bash scripts/install_deps.sh
+
+# 3. Start infrastructure (Redis + ChromaDB must already be running)
+# See docs/hardware.md
+
+# 4. Start Curiosity
+bash scripts/start_curiosity.sh
+
+# 5. Check status
+bash scripts/status_curiosity.sh
+```
+
 ## Status
 
 `v0.0.1` — Architecture phase. Scaffolding in progress.
