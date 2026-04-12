@@ -627,6 +627,12 @@ class VerifierDaemon:
 
                 self._publish_result(result)
 
+                # Increment throughput counter (read by dashboard as VERIFY depth)
+                try:
+                    self._ensure_connected().incr("VERIFY_COUNT")
+                except Exception as _incr_exc:
+                    logger.warning("[verifier] Failed to increment VERIFY_COUNT: %s", _incr_exc)
+
                 if result.outcome == "fail":
                     # Don't requeue placeholder errors — they'll loop forever
                     if "not_implemented" not in result.failure_mode:

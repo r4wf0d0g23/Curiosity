@@ -25,8 +25,11 @@ METRICS_FILE = CURIOSITY_DIR / "metrics" / "capability_scores.jsonl"
 OUTCOMES_PASS_DIR = CURIOSITY_DIR / "memory" / "outcomes" / "pass"
 
 DAEMONS = ["assessor", "formulator", "solver", "verifier", "memorizer"]
-QUEUES = ["ASSESS_QUEUE", "FORMULATE_QUEUE", "SOLVE_QUEUE", "VERIFY_QUEUE", "MEMORIZE_QUEUE"]
-QUEUE_SHORT = ["ASSESS", "FORMULATE", "SOLVE", "VERIFY", "MEMORIZE"]
+# VERIFY_QUEUE does not accumulate — Verifier reads SOLVE_QUEUE and writes
+# directly to MEMORIZE_QUEUE.  VERIFY is shown as a throughput counter instead
+# (see VERIFY_COUNT Redis key incremented by the Verifier per processed item).
+QUEUES = ["ASSESS_QUEUE", "FORMULATE_QUEUE", "SOLVE_QUEUE", "MEMORIZE_QUEUE"]
+QUEUE_SHORT = ["ASSESS", "FORMULATE", "SOLVE", "MEMORIZE"]
 
 # ---------------------------------------------------------------------------
 # Optional Redis
@@ -88,6 +91,11 @@ def _queue_depths() -> dict:
                 depths[short] = 0
         else:
             depths[short] = 0
+    # VERIFY is a cumulative throughput counter, not a queue length
+    try:
+        depths["VERIFY"] = int(_rc.get("VERIFY_COUNT") or 0)
+    except Exception:
+        depths["VERIFY"] = 0
     return depths
 
 

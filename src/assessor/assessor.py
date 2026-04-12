@@ -36,6 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.shared.types import ProblemPacket
 from src.assessor.benchmark_loader import BenchmarkLoader
 from src.assessor.probe_runner import ProbeRunner
+from src.assessor.curriculum import CurriculumManager
+from src.assessor.complexity_gate import ComplexityGate
 from src.metrics.tracker import CapabilityTracker
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -180,6 +182,7 @@ def run_gap_mode(
     loader: BenchmarkLoader,
     runner: ProbeRunner,
     baseline: dict,
+    curriculum: CurriculumManager | None = None,
 ) -> dict:
     """Run a full gap-mode benchmark scan.
 
@@ -207,6 +210,14 @@ def run_gap_mode(
             failure_rate * 100,
             total,
         )
+
+        # ── Curriculum tier tracking ───────────────────────────────────────
+        if curriculum is not None:
+            curriculum.record_result(domain, pass_rate)
+            logger.debug(
+                "[curriculum] domain=%s pass_rate=%.2f tier=%d",
+                domain, pass_rate, curriculum.get_tier(domain),
+            )
 
         # ── Failure-rate threshold check ──────────────────────────────────────
         if failure_rate > FAILURE_THRESHOLD:
@@ -257,6 +268,8 @@ def run_curiosity_mode(
     loader: BenchmarkLoader,
     runner: ProbeRunner,
     novel_count: int = CURIOSITY_NOVEL_COUNT,
+    curriculum: CurriculumManager | None = None,
+    gate: ComplexityGate | None = None,
 ) -> None:
     """Generate and probe novel questions in unexplored domains."""
     logger.info("=== CURIOSITY MODE: generating novel probes ===")
@@ -274,9 +287,21 @@ def run_curiosity_mode(
         '"difficulty": "medium"}'
     )
 
+    # Directory for persisting passing curiosity probes across restarts
+    gap_persist_dir = loader.gap_dir
+
     for domain in chosen_domains:
+        # ── Inject curriculum tier instructions into generation prompt ──────
+        tier_instructions = (
+            curriculum.get_tier_prompt_instructions(domain)
+            if curriculum is not None
+            else "Generate a challenging test question."
+        )
+        current_tier = curriculum.get_tier(domain) if curriculum is not None else 1
+
         generation_prompt = (
-            f"Generate a challenging test question in domain: {domain}.\n"
+            f"{tier_instructions}\n"
+            f"Domain: {domain}\n"
             f"Format your response as valid JSON exactly like this:\n"
             f"{json_format_hint}\n"
             "No extra text outside the JSON."
@@ -285,7 +310,8 @@ def run_curiosity_mode(
         try:
             raw_response, latency = runner._query_server(generation_prompt)
             logger.debug(
-                "[curiosity] Generated probe for domain=%s in %.2fs", domain, latency
+                "[curiosity] Generated probe for domain=%s tier=%d in %.2fs",
+                domain, current_tier, latency,
             )
 
             # Parse the generated question
@@ -309,14 +335,62 @@ def run_curiosity_mode(
                 question = raw_response[:300]
                 answer = ""
 
-            # Build an ad-hoc benchmark and run it
+            # Build an ad-hoc benchmark
             ad_hoc_benchmark = {
                 "id": f"curiosity_{domain}_{uuid.uuid4().hex[:8]}",
                 "domain": domain,
                 "prompt": question,
                 "expected": answer,
                 "check": "llm_judge" if answer else "contains",
+                "tier": current_tier,
             }
+
+            # ── Complexity gate — validate before adding to suite ──────────
+            gate_passed = True
+            if gate is not None:
+                try:
+                    gate_passed, gate_score, gate_reason = gate.validate(
+                        ad_hoc_benchmark, current_tier
+                    )
+                    if gate_passed:
+                        logger.info(
+                            "[complexity_gate] PASS domain=%s tier=%d score=%.1f",
+                            domain, current_tier, gate_score,
+                        )
+                    else:
+                        logger.warning(
+                            "[complexity_gate] FAIL domain=%s tier=%d score=%.1f — %s",
+                            domain, current_tier, gate_score, gate_reason,
+                        )
+                except Exception as gate_exc:
+                    # Gate errors must never crash the loop
+                    logger.warning(
+                        "[complexity_gate] Exception (ignoring, gate open): %s", gate_exc
+                    )
+                    gate_passed = True
+
+            if not gate_passed:
+                # Skip emitting and persisting — problem too easy for its tier
+                continue
+
+            # ── Persist passing probe to tiered file ──────────────────────
+            try:
+                gap_persist_dir.mkdir(parents=True, exist_ok=True)
+                tier_file = gap_persist_dir / f"{domain}_tier{current_tier}.json"
+                existing: list = []
+                if tier_file.exists():
+                    with tier_file.open("r", encoding="utf-8") as fh:
+                        loaded = json.load(fh)
+                        existing = loaded if isinstance(loaded, list) else [loaded]
+                existing.append(ad_hoc_benchmark)
+                with tier_file.open("w", encoding="utf-8") as fh:
+                    json.dump(existing, fh, indent=2)
+                logger.info(
+                    "[curiosity] Saved probe to %s (total=%d)",
+                    tier_file, len(existing),
+                )
+            except Exception as persist_exc:
+                logger.warning("[curiosity] Failed to persist probe: %s", persist_exc)
 
             probe_result = runner.run_probe(ad_hoc_benchmark)
 
@@ -325,7 +399,8 @@ def run_curiosity_mode(
             novelty_score = 0.8  # high novelty — unexplored domain
             failure_rate = 0.0 if probe_result["score"] else 1.0
             description = (
-                f"Curiosity probe in unexplored domain '{domain}': '{question[:120]}'"
+                f"Curiosity probe in unexplored domain '{domain}' "
+                f"(tier {current_tier}): '{question[:120]}'"
             )
 
             _emit_packet(
@@ -364,6 +439,8 @@ def main() -> None:
 
     loader = BenchmarkLoader(gap_dir=BENCHMARK_GAP_DIR)
     runner = ProbeRunner(server_url=SERVER_URL, model=SERVER_MODEL)
+    curriculum = CurriculumManager()
+    gate = ComplexityGate(server_url=SERVER_URL)
 
     baseline: dict = loader.load_baseline()
     baseline_saved: bool = bool(baseline)
@@ -377,7 +454,7 @@ def main() -> None:
 
         try:
             # 1. Gap Mode scan
-            suite = run_gap_mode(r, loader, runner, baseline)
+            suite = run_gap_mode(r, loader, runner, baseline, curriculum=curriculum)
 
             # 2. Save baseline after first successful full scan
             if suite and not baseline_saved:
@@ -401,7 +478,7 @@ def main() -> None:
                     )
 
             # 4. Curiosity Mode probes
-            run_curiosity_mode(r, loader, runner)
+            run_curiosity_mode(r, loader, runner, curriculum=curriculum, gate=gate)
 
         except Exception as exc:
             # Never exit on exception — log and continue

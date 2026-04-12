@@ -50,9 +50,11 @@ class BenchmarkLoader:
                 if isinstance(data, list):
                     for item in data:
                         item.setdefault("_source_file", json_file.name)
+                        item.setdefault("tier", 1)  # default tier for legacy files
                         benchmarks.append(item)
                 elif isinstance(data, dict):
                     data.setdefault("_source_file", json_file.name)
+                    data.setdefault("tier", 1)  # default tier for legacy files
                     benchmarks.append(data)
                 else:
                     logger.warning("Unexpected JSON structure in %s — skipping", json_file)
