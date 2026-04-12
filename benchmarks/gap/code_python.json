@@ -1,0 +1,37 @@
+[
+  {
+    "id": "code_python_001",
+    "domain": "code",
+    "prompt": "The following Python function is supposed to return the sum of all even numbers in a list, but it has a bug. Find and fix it:\n\n```python\ndef sum_evens(nums):\n    total = 0\n    for n in nums:\n        if n % 2 == 1:\n            total += n\n    return total\n```\n\nWhat is the corrected condition?",
+    "expected": "n % 2 == 0",
+    "check": "contains"
+  },
+  {
+    "id": "code_python_002",
+    "domain": "code",
+    "prompt": "This Python code is meant to reverse a string, but raises a TypeError on integers. Fix it so it converts the input to a string first and then reverses it:\n\n```python\ndef reverse_input(x):\n    return x[::-1]\n```\n\nWrite the corrected one-line function body.",
+    "expected": "str(x)[::-1]",
+    "check": "contains"
+  },
+  {
+    "id": "code_python_003",
+    "domain": "code",
+    "prompt": "The following function is intended to return the factorial of n recursively, but it causes infinite recursion. Identify the missing base case and write the corrected function:\n\n```python\ndef factorial(n):\n    return n * factorial(n - 1)\n```",
+    "expected": "if n == 0",
+    "check": "contains"
+  },
+  {
+    "id": "code_python_004",
+    "domain": "code",
+    "prompt": "This Python snippet is supposed to read a file and print its contents, but it never closes the file properly. Rewrite it using a context manager (with statement):\n\n```python\nf = open('data.txt', 'r')\nprint(f.read())\n```",
+    "expected": "with open",
+    "check": "contains"
+  },
+  {
+    "id": "code_python_005",
+    "domain": "code",
+    "prompt": "The following function has an off-by-one error — it should return the last N elements of a list but skips the final one:\n\n```python\ndef last_n(lst, n):\n    return lst[-n:-1]\n```\n\nWhat is the correct slice to return the last N elements?",
+    "expected": "lst[-n:]",
+    "check": "contains"
+  }
+]

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "math_basic_001",
+    "domain": "math",
+    "prompt": "What is 847 * 293?",
+    "expected": "248171",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_002",
+    "domain": "math",
+    "prompt": "What is 1024 / 32?",
+    "expected": "32",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_003",
+    "domain": "math",
+    "prompt": "What is 17 squared?",
+    "expected": "289",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_004",
+    "domain": "math",
+    "prompt": "Solve for x: 3x + 7 = 22",
+    "expected": "5",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_005",
+    "domain": "math",
+    "prompt": "What is the square root of 144?",
+    "expected": "12",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_006",
+    "domain": "math",
+    "prompt": "What is 15% of 240?",
+    "expected": "36",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_007",
+    "domain": "math",
+    "prompt": "A train travels at 80 km/h for 2.5 hours. How far does it travel?",
+    "expected": "200",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_008",
+    "domain": "math",
+    "prompt": "What is the greatest common divisor (GCD) of 48 and 36?",
+    "expected": "12",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_009",
+    "domain": "math",
+    "prompt": "Simplify the fraction 18/24 to its lowest terms.",
+    "expected": "3/4",
+    "check": "contains"
+  },
+  {
+    "id": "math_basic_010",
+    "domain": "math",
+    "prompt": "Solve for x: 2x^2 - 8 = 0. Give all real solutions.",
+    "expected": "2",
+    "check": "contains"
+  }
+]

@@ -1,0 +1,37 @@
+[
+  {
+    "id": "logic_basic_001",
+    "domain": "logic",
+    "prompt": "All roses are flowers. Some flowers fade quickly. Can we conclude that some roses fade quickly? Answer Yes or No and explain.",
+    "expected": "No",
+    "check": "contains"
+  },
+  {
+    "id": "logic_basic_002",
+    "domain": "logic",
+    "prompt": "If it rains, the ground gets wet. The ground is wet. Can we conclude that it rained? Answer Yes or No.",
+    "expected": "No",
+    "check": "contains"
+  },
+  {
+    "id": "logic_basic_003",
+    "domain": "logic",
+    "prompt": "A farmer has 17 sheep. All but 9 die. How many sheep does the farmer have left?",
+    "expected": "9",
+    "check": "contains"
+  },
+  {
+    "id": "logic_basic_004",
+    "domain": "logic",
+    "prompt": "There are three boxes. One is labeled APPLES, one ORANGES, one APPLES AND ORANGES. All labels are wrong. You pick one fruit from the APPLES AND ORANGES box and it is an apple. What does that box actually contain?",
+    "expected": "apples",
+    "check": "contains"
+  },
+  {
+    "id": "logic_basic_005",
+    "domain": "logic",
+    "prompt": "A woman shoots her husband, then holds him underwater for five minutes. Twenty minutes later they go out to dinner. How is this possible?",
+    "expected": "photograph",
+    "check": "llm_judge"
+  }
+]
