@@ -1,0 +1,64 @@
+# Curiosity — System Configuration v0.0.1
+
+server:
+  host: localhost
+  port: 8001
+  model: Qwen/Qwen3-72B
+  checkpoint_dir: /data/curiosity/checkpoints
+
+bus:
+  host: localhost
+  port: 6379
+  backend: redis-streams
+  queues:
+    - ASSESS_QUEUE
+    - FORMULATE_QUEUE
+    - SOLVE_QUEUE
+    - VERIFY_QUEUE
+    - MEMORIZE_QUEUE
+
+memory:
+  backend: chromadb
+  host: localhost
+  port: 8000
+  path_store: /data/curiosity/memory
+  collections:
+    - problems
+    - solutions
+    - outcomes
+    - paths
+
+assessor:
+  gap_mode:
+    benchmark_dir: /data/curiosity/benchmarks
+    probe_interval_sec: 60
+    failure_threshold: 0.10   # flag if >10% failure rate on any benchmark
+  curiosity_mode:
+    novelty_weight: 0.4       # 40% of priority score from novelty
+    exploration_budget: 0.3   # 30% of cycles dedicated to curiosity probes
+
+formulator:
+  min_severity_to_queue: 0.2
+  require_automatable_criterion: true
+  scope_frequency_threshold: 3  # 3+ occurrences = bridge, else swim
+
+solver:
+  memory_first: true            # always query Memory before generating novel solutions
+  max_novel_attempts: 5         # max novel approaches before escalating to Meta
+
+verifier:
+  regression_suite_path: /data/curiosity/benchmarks/regression
+  rollback_on_any_regression: true
+  commit_requires_pass: true
+
+memorizer:
+  append_only: true             # never delete, only add
+  improvement_loop:
+    enabled: true
+    cycle_interval_sec: 3600    # run improvement search every hour
+    max_improvement_attempts: 10
+
+meta:
+  review_cycle_sec: 86400       # daily meta review
+  min_cycles_before_spawn: 100  # need 100 cycles of data before spawning new daemon
+  performance_window: 7d        # evaluate daemon performance over 7 days
