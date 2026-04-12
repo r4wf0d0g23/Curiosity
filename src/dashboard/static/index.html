@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CURIOSITY // MIND ACTIVE</title>
+<style>
+  :root {
+    --bg:        #0a0a0f;
+    --bg2:       #0f0f1a;
+    --bg3:       #13131f;
+    --border:    #1e1e30;
+    --blue:      #00b4ff;
+    --green:     #00ff9d;
+    --yellow:    #ffe66d;
+    --red:       #ff4d6a;
+    --dim:       #4a4a6a;
+    --text:      #c8c8e8;
+    --text-dim:  #6a6a9a;
+    --pulse-dur: 1.8s;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', 'Lucida Console', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .header-left { display: flex; align-items: center; gap: 14px; }
+
+  .logo {
+    font-size: 20px;
+    font-weight: bold;
+    color: var(--blue);
+    letter-spacing: 2px;
+    text-shadow: 0 0 16px var(--blue);
+  }
+
+  .tagline {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 2px;
+  }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 12px;
+    border: 1px solid var(--green);
+    border-radius: 20px;
+    color: var(--green);
+    font-size: 11px;
+    letter-spacing: 1px;
+    background: rgba(0,255,157,0.06);
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: blink var(--pulse-dur) ease-in-out infinite;
+  }
+
+  .uptime {
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  /* ── GRID ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 0;
+    max-width: 1200px;
+    margin: 20px auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 16px 18px;
+  }
+
+  .panel-title {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  /* ── DAEMONS ── */
+  .daemons-panel { grid-column: 1; grid-row: 1; }
+
+  .daemon-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+
+  .daemon-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dim);
+    flex-shrink: 0;
+    transition: background 0.5s;
+  }
+  .daemon-dot.running {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: blink var(--pulse-dur) ease-in-out infinite;
+  }
+  .daemon-dot.stopped { background: var(--red); }
+
+  .daemon-name { color: var(--text); }
+  .daemon-status { margin-left: auto; font-size: 10px; color: var(--text-dim); }
+
+  /* ── THINKING ── */
+  .thinking-panel { grid-column: 2; grid-row: 1; }
+
+  .thinking-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .thinking-domain {
+    font-size: 14px;
+    color: var(--blue);
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  .thinking-desc {
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.6;
+    font-style: italic;
+    margin-bottom: 12px;
+    min-height: 38px;
+  }
+
+  .priority-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .priority-label { color: var(--text-dim); }
+  .priority-bar-wrap {
+    flex: 1;
+    height: 10px;
+    background: var(--bg3);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .priority-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue), var(--green));
+    border-radius: 5px;
+    transition: width 0.6s cubic-bezier(.4,0,.2,1);
+  }
+  .priority-val { color: var(--yellow); min-width: 34px; text-align: right; }
+
+  /* ── PIPELINE ── */
+  .pipeline-panel {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .pipeline-flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+
+  .pipeline-stage {
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .stage-box {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg3);
+    font-size: 12px;
+    transition: border-color 0.4s, background 0.4s, box-shadow 0.4s;
+  }
+  .stage-box.active {
+    border-color: var(--blue);
+    background: rgba(0,180,255,0.08);
+    box-shadow: 0 0 12px rgba(0,180,255,0.3);
+  }
+  .stage-name { color: var(--text-dim); font-size: 10px; letter-spacing: 1px; }
+  .stage-count {
+    color: var(--blue);
+    font-size: 15px;
+    font-weight: bold;
+    line-height: 1;
+  }
+  .stage-count.hot { color: var(--green); text-shadow: 0 0 8px var(--green); }
+
+  .pipeline-arrow {
+    padding: 0 8px;
+    color: var(--dim);
+    font-size: 16px;
+  }
+
+  .pipeline-track {
+    height: 8px;
+    background: var(--bg3);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    position: relative;
+  }
+
+  .pipeline-pulse {
+    height: 100%;
+    background: linear-gradient(90deg,
+      transparent 0%, var(--blue) 40%, var(--green) 60%, transparent 100%);
+    border-radius: 4px;
+    animation: pipeline-scroll 2.5s linear infinite;
+    width: 40%;
+  }
+
+  /* ── BOTTOM ROW ── */
+  .scores-panel { grid-column: 1 / 2; grid-row: 3; }
+  .solved-panel  { grid-column: 2 / 3; grid-row: 3; }
+
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .score-name {
+    width: 60px;
+    color: var(--text);
+    font-size: 12px;
+    text-transform: capitalize;
+  }
+  .score-bar-wrap {
+    flex: 1;
+    height: 9px;
+    background: var(--bg3);
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .score-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--blue) 0%, var(--green) 100%);
+    border-radius: 5px;
+    transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  }
+  .score-val {
+    width: 36px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--yellow);
+  }
+  .score-trend { font-size: 11px; color: var(--text-dim); width: 12px; }
+  .score-trend.up   { color: var(--green); }
+  .score-trend.down { color: var(--red); }
+
+  .solved-list {
+    list-style: none;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .solved-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    animation: fadein 0.5s ease;
+  }
+  .solved-domain {
+    color: var(--blue);
+    font-weight: bold;
+    min-width: 55px;
+  }
+  .solved-score { color: var(--green); }
+  .solved-time  { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+
+  .total-solved {
+    margin-top: 10px;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .total-solved span { color: var(--yellow); font-weight: bold; }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    max-width: 1200px;
+    margin: 0 auto 20px;
+    padding: 6px 20px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .status-item { display: flex; gap: 5px; }
+  .status-item .k { color: var(--text-dim); }
+  .status-item .v { color: var(--text); }
+  .status-item .v.ok  { color: var(--green); }
+  .status-item .v.err { color: var(--red); }
+
+  /* ── WARM UP PLACEHOLDER ── */
+  .warmup {
+    color: var(--text-dim);
+    font-style: italic;
+    padding: 12px 0;
+  }
+
+  /* ── ANIMATIONS ── */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.25; }
+  }
+  @keyframes pipeline-scroll {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(350%); }
+  }
+  @keyframes fadein {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-left">
+    <div>
+      <div class="logo">⚡ CURIOSITY // MIND ACTIVE</div>
+      <div class="tagline">A window into the mind of Curiosity</div>
+    </div>
+    <div class="live-badge">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="liveLabel">CONNECTING</span>
+    </div>
+  </div>
+  <div class="uptime">uptime: <span id="uptimeVal">—</span></div>
+</header>
+
+<!-- ── STATUS BAR ── -->
+<div class="status-bar">
+  <div class="status-item"><span class="k">redis:</span> <span class="v" id="redisStatus">—</span></div>
+  <div class="status-item"><span class="k">last update:</span> <span class="v" id="lastUpdate">—</span></div>
+  <div class="status-item"><span class="k">daemons running:</span> <span class="v" id="daemonsRunning">—</span></div>
+</div>
+
+<!-- ── MAIN GRID ── -->
+<div class="main-grid">
+
+  <!-- DAEMONS -->
+  <div class="panel daemons-panel">
+    <div class="panel-title">Daemons</div>
+    <div id="daemonsContainer">
+      <div class="warmup">Connecting…</div>
+    </div>
+  </div>
+
+  <!-- THINKING -->
+  <div class="panel thinking-panel">
+    <div class="panel-title">What It's Thinking</div>
+    <div class="thinking-label">Currently solving:</div>
+    <div class="thinking-domain" id="thinkingDomain">—</div>
+    <div class="thinking-desc" id="thinkingDesc"><em>Warming up…</em></div>
+    <div class="priority-row">
+      <span class="priority-label">Priority:</span>
+      <div class="priority-bar-wrap">
+        <div class="priority-bar-fill" id="priorityFill" style="width:0%"></div>
+      </div>
+      <span class="priority-val" id="priorityVal">—</span>
+    </div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="panel pipeline-panel">
+    <div class="panel-title">Pipeline Flow</div>
+    <div class="pipeline-flow" id="pipelineFlow">
+      <!-- rendered by JS -->
+    </div>
+    <div class="pipeline-track">
+      <div class="pipeline-pulse"></div>
+    </div>
+  </div>
+
+  <!-- CAPABILITY SCORES -->
+  <div class="panel scores-panel">
+    <div class="panel-title">Capability Scores</div>
+    <div id="scoresContainer">
+      <div class="warmup">Waiting for metrics…</div>
+    </div>
+  </div>
+
+  <!-- RECENT SOLVED -->
+  <div class="panel solved-panel">
+    <div class="panel-title">Recent Solved</div>
+    <ul class="solved-list" id="solvedList">
+      <li><div class="warmup">Warming up…</div></li>
+    </ul>
+    <div class="total-solved">Total solved: <span id="totalSolved">—</span></div>
+  </div>
+
+</div><!-- /main-grid -->
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+const prevScores = {};
+let lastTs = 0;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function ago(ts) {
+  const s = Math.max(0, Math.floor(Date.now()/1000) - ts);
+  if (s < 60)  return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Render functions ───────────────────────────────────────────────────────
+function renderDaemons(daemons) {
+  const names = ['assessor','formulator','solver','verifier','memorizer'];
+  let html = '';
+  let runCount = 0;
+  for (const name of names) {
+    const status = (daemons && daemons[name]) || 'stopped';
+    const isRunning = status === 'running';
+    if (isRunning) runCount++;
+    html += `
+      <div class="daemon-row">
+        <div class="daemon-dot ${isRunning ? 'running' : 'stopped'}"></div>
+        <span class="daemon-name">${name}</span>
+        <span class="daemon-status">${isRunning ? '▶' : '■'}</span>
+      </div>`;
+  }
+  document.getElementById('daemonsContainer').innerHTML = html;
+  document.getElementById('daemonsRunning').textContent = `${runCount}/${names.length}`;
+  document.getElementById('daemonsRunning').className = `v ${runCount === names.length ? 'ok' : ''}`;
+}
+
+function renderPipeline(queues) {
+  const stages = ['ASSESS','FORMULATE','SOLVE','VERIFY','MEMORIZE'];
+  const container = document.getElementById('pipelineFlow');
+  let html = '';
+  let total = 0;
+  stages.forEach((s, i) => {
+    const n = (queues && queues[s] != null) ? queues[s] : 0;
+    total += n;
+    const hot = n > 0;
+    const active = n > 0;
+    html += `
+      <div class="pipeline-stage">
+        <div class="stage-box ${active ? 'active' : ''}">
+          <div class="stage-name">${s}</div>
+          <div class="stage-count ${hot ? 'hot' : ''}">${n}</div>
+        </div>
+      </div>`;
+    if (i < stages.length - 1) {
+      html += `<div class="pipeline-arrow">→</div>`;
+    }
+  });
+  container.innerHTML = html;
+}
+
+function renderThinking(problem) {
+  if (!problem) {
+    document.getElementById('thinkingDomain').textContent = '—';
+    document.getElementById('thinkingDesc').innerHTML = '<em>Warming up…</em>';
+    document.getElementById('priorityFill').style.width = '0%';
+    document.getElementById('priorityVal').textContent = '—';
+    return;
+  }
+  document.getElementById('thinkingDomain').textContent = `Domain: ${esc(problem.domain)}`;
+  const desc = problem.description || '(no description)';
+  document.getElementById('thinkingDesc').textContent = `"${desc}"`;
+  const pct = Math.round((problem.priority || 0) * 100);
+  document.getElementById('priorityFill').style.width = `${pct}%`;
+  document.getElementById('priorityVal').textContent = (problem.priority || 0).toFixed(2);
+}
+
+function renderScores(scores) {
+  const container = document.getElementById('scoresContainer');
+  if (!scores || Object.keys(scores).length === 0) {
+    container.innerHTML = '<div class="warmup">Waiting for metrics…</div>';
+    return;
+  }
+  const sorted = Object.entries(scores).sort((a,b) => b[1]-a[1]);
+  let html = '';
+  for (const [domain, score] of sorted) {
+    const pct = Math.round(score * 100);
+    const prev = prevScores[domain];
+    let trendClass = '';
+    let trendSym = '→';
+    if (prev !== undefined) {
+      if (score > prev + 0.005)  { trendClass = 'up';   trendSym = '↑'; }
+      else if (score < prev - 0.005) { trendClass = 'down'; trendSym = '↓'; }
+    }
+    prevScores[domain] = score;
+    html += `
+      <div class="score-row">
+        <div class="score-name">${esc(domain)}</div>
+        <div class="score-bar-wrap">
+          <div class="score-bar-fill" style="width:${pct}%"></div>
+        </div>
+        <div class="score-val">${score.toFixed(2)}</div>
+        <div class="score-trend ${trendClass}">${trendSym}</div>
+      </div>`;
+  }
+  container.innerHTML = html;
+}
+
+function renderSolved(items, total) {
+  const list = document.getElementById('solvedList');
+  document.getElementById('totalSolved').textContent = total != null ? total : '—';
+
+  if (!items || items.length === 0) {
+    list.innerHTML = '<li><div class="warmup">Warming up…</div></li>';
+    return;
+  }
+
+  const now = Math.floor(Date.now()/1000);
+  let html = '';
+  for (const item of items) {
+    html += `
+      <li class="solved-item">
+        <span class="solved-domain">${esc(item.domain)}</span>
+        <span class="solved-score">(${(item.score||0).toFixed(2)})</span>
+        <span class="solved-time">${ago(item.timestamp)}</span>
+      </li>`;
+  }
+  list.innerHTML = html;
+}
+
+// ── Main update ────────────────────────────────────────────────────────────
+function applyUpdate(data) {
+  // header
+  document.getElementById('uptimeVal').textContent = data.uptime || '—';
+  const redisEl = document.getElementById('redisStatus');
+  redisEl.textContent = data.redis_available ? 'connected' : 'offline';
+  redisEl.className   = `v ${data.redis_available ? 'ok' : 'err'}`;
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+
+  renderDaemons(data.daemons);
+  renderPipeline(data.queues);
+  renderThinking(data.current_problem);
+  renderScores(data.capability_scores);
+  renderSolved(data.recent_solved, data.total_solved);
+
+  // live badge
+  document.getElementById('liveDot').style.background = 'var(--green)';
+  document.getElementById('liveLabel').textContent = 'LIVE';
+}
+
+// ── SSE ────────────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('/events');
+
+  es.onopen = () => {
+    document.getElementById('liveLabel').textContent = 'LIVE';
+    document.getElementById('liveDot').style.background = 'var(--green)';
+  };
+
+  es.onmessage = (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      if (data.type === 'status_update') applyUpdate(data);
+    } catch(e) { console.warn('Parse error', e); }
+  };
+
+  es.onerror = () => {
+    document.getElementById('liveLabel').textContent = 'RECONNECTING';
+    document.getElementById('liveDot').style.background = 'var(--yellow)';
+    es.close();
+    setTimeout(connect, 3000);
+  };
+}
+
+// ── Also poll /api/status once immediately for instant display ─────────────
+fetch('/api/status')
+  .then(r => r.ok ? r.json() : null)
+  .then(d => { if (d) applyUpdate(d); })
+  .catch(() => {});
+
+connect();
+</script>
+</body>
+</html>
