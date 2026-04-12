@@ -16,6 +16,17 @@ import os
 
 logger = logging.getLogger("formulator.criterion_generator")
 
+# ── Known automatable domains (always force automatable=True) ─────────────────
+# Maps domain name → (criterion_type, benchmark_id, target_score)
+KNOWN_AUTOMATABLE_DOMAINS: dict[str, tuple[str, str, float]] = {
+    'math':      ('benchmark', 'math_basic',      0.90),
+    'code':      ('unit_test', 'code_python',      0.85),
+    'logic':     ('benchmark', 'logic_basic',      0.85),
+    'security':  ('benchmark', 'security_basic',   0.80),
+    'science':   ('benchmark', 'science_basic',    0.80),
+    'reasoning': ('benchmark', 'reasoning_basic',  0.85),
+}
+
 # ── Known benchmark suites per domain ─────────────────────────────────────────
 # Maps lower-cased domain names to their canonical benchmark suite IDs.
 DOMAIN_BENCHMARKS: dict[str, str] = {
@@ -72,6 +83,21 @@ class CriterionGenerator:
         domain      = problem.get("domain", "").strip().lower()
         description = problem.get("description", "")
         failure_rate = float(problem.get("failure_rate", 0.0))
+
+        # ── 0. Known automatable domains → force automatable=True ───────────
+        if domain in KNOWN_AUTOMATABLE_DOMAINS:
+            criterion_type, benchmark_id, target_score = KNOWN_AUTOMATABLE_DOMAINS[domain]
+            if criterion_type == 'unit_test':
+                result = self._unit_test_criterion(description)
+            else:
+                result = self._benchmark_criterion(description, benchmark_id, failure_rate)
+                result['target_score'] = target_score
+            result['automatable'] = True
+            logger.debug(
+                "known-domain override: domain=%s criterion=%s benchmark=%s automatable=True",
+                domain, criterion_type, benchmark_id,
+            )
+            return result
 
         # ── 1. Code domain → unit_test ─────────────────────────────────────
         if domain in CODE_DOMAINS:

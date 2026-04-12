@@ -1,0 +1,37 @@
+[
+  {
+    "id": "science_basic_001",
+    "domain": "science",
+    "prompt": "What is the speed of light in a vacuum, approximately, in metres per second?",
+    "expected": "3",
+    "check": "contains"
+  },
+  {
+    "id": "science_basic_002",
+    "domain": "science",
+    "prompt": "What is the chemical formula for water?",
+    "expected": "H2O",
+    "check": "contains"
+  },
+  {
+    "id": "science_basic_003",
+    "domain": "science",
+    "prompt": "Which organelle is known as the powerhouse of the cell?",
+    "expected": "mitochondria",
+    "check": "contains"
+  },
+  {
+    "id": "science_basic_004",
+    "domain": "science",
+    "prompt": "What is Newton's second law of motion? Express it as a formula.",
+    "expected": "F=ma",
+    "check": "contains"
+  },
+  {
+    "id": "science_basic_005",
+    "domain": "science",
+    "prompt": "What is the atomic number of carbon?",
+    "expected": "6",
+    "check": "contains"
+  }
+]

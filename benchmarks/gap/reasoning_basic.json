@@ -1,0 +1,37 @@
+[
+  {
+    "id": "reasoning_basic_001",
+    "domain": "reasoning",
+    "prompt": "Alice is taller than Bob. Bob is taller than Carol. Is Alice taller than Carol? Answer yes or no.",
+    "expected": "yes",
+    "check": "contains"
+  },
+  {
+    "id": "reasoning_basic_002",
+    "domain": "reasoning",
+    "prompt": "A farmer has 17 sheep. All but 9 die. How many sheep does the farmer have left?",
+    "expected": "9",
+    "check": "contains"
+  },
+  {
+    "id": "reasoning_basic_003",
+    "domain": "reasoning",
+    "prompt": "If it takes 5 machines 5 minutes to make 5 widgets, how many minutes does it take 100 machines to make 100 widgets?",
+    "expected": "5",
+    "check": "contains"
+  },
+  {
+    "id": "reasoning_basic_004",
+    "domain": "reasoning",
+    "prompt": "There are 3 boxes: one contains only apples, one contains only oranges, and one contains both. All labels are wrong. You pick one fruit from the box labelled 'both' and it is an apple. What does the box labelled 'oranges' contain?",
+    "expected": "both",
+    "check": "contains"
+  },
+  {
+    "id": "reasoning_basic_005",
+    "domain": "reasoning",
+    "prompt": "A bat and ball together cost $1.10. The bat costs $1.00 more than the ball. How much does the ball cost in cents?",
+    "expected": "5",
+    "check": "contains"
+  }
+]

@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 import uuid
@@ -35,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.shared.types import ProblemPacket
 from src.assessor.benchmark_loader import BenchmarkLoader
 from src.assessor.probe_runner import ProbeRunner
+from src.metrics.tracker import CapabilityTracker
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,33 @@ BENCHMARK_GAP_DIR: Path | None = (
 )
 
 ASSESS_QUEUE = "ASSESS_QUEUE"
+
+# ── JSON extraction helper ────────────────────────────────────────────────────
+
+
+def extract_json(text: str) -> dict | None:
+    """Extract first JSON object from LLM response text."""
+    # Try direct parse first
+    try:
+        return json.loads(text.strip())
+    except Exception:
+        pass
+    # Try extracting from markdown code block
+    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            pass
+    # Try finding any JSON object in the text
+    match = re.search(r'\{[^{}]*"prompt"[^{}]*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
+    return None
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -261,15 +290,9 @@ def run_curiosity_mode(
 
             # Parse the generated question
             try:
-                # Strip markdown code fences if present
-                clean = raw_response.strip()
-                if clean.startswith("```"):
-                    lines = clean.splitlines()
-                    clean = "\n".join(
-                        l for l in lines if not l.startswith("```")
-                    ).strip()
-
-                generated = json.loads(clean)
+                generated = extract_json(raw_response)
+                if generated is None:
+                    raise ValueError("extract_json returned None — no JSON found in response")
                 question = generated.get("question", "").strip()
                 answer = generated.get("answer", "").strip()
 
@@ -366,7 +389,18 @@ def main() -> None:
             # Refresh baseline from disk every cycle (may have been updated externally)
             baseline = loader.load_baseline()
 
-            # 3. Curiosity Mode probes
+            # 3. Record capability metrics
+            if suite:
+                tracker = CapabilityTracker()
+                for domain, stats in suite.items():
+                    tracker.record(
+                        domain=domain,
+                        pass_rate=stats["pass_rate"],
+                        sample_size=stats["total"],
+                        cycle=cycle,
+                    )
+
+            # 4. Curiosity Mode probes
             run_curiosity_mode(r, loader, runner)
 
         except Exception as exc:
