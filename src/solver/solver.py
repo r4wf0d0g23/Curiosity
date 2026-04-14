@@ -34,7 +34,7 @@ import redis
 
 from src.shared.types import ProblemPacket, SolutionPlan
 from src.solver.memory_retriever import MemoryRetriever, SIMILARITY_THRESHOLD
-from src.solver.solution_generator import SolutionGenerator
+from src.solver.solution_generator import SolutionGenerator, _should_propose_finetune
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR = Path(os.path.expanduser("~/curiosity/logs"))
@@ -57,6 +57,8 @@ REDIS_PORT      = int(os.environ.get("REDIS_PORT", 6379))
 FORMULATE_QUEUE = "FORMULATE_QUEUE"
 SOLVE_QUEUE     = "SOLVE_QUEUE"
 BLOCK_MS        = 2_000   # ms to block on xread before timeout
+TRAINING_LOCK_KEY = "CURIOSITY_TRAINING_LOCK"  # set by trainer while GPU is busy
+CONSUMER_GROUP  = "solvers"
 
 # ── Solver config ─────────────────────────────────────────────────────────────
 MAX_ATTEMPTS         = 5
@@ -98,18 +100,21 @@ def _redis_connect() -> redis.Redis:
 def _deserialize_problem_packet(raw: dict) -> Optional[ProblemPacket]:
     """Try to parse a ProblemPacket from a raw Redis stream message dict."""
     # Messages from Formulator: 'data' key holds JSON
-    payload_str = raw.get("data") or raw.get("problem") or ""
-    if payload_str:
-        try:
-            payload = json.loads(payload_str)
-        except json.JSONDecodeError:
-            payload = {}
+    # Handle retry messages where problem is already a dict
+    problem_direct = raw.get("problem")
+    if isinstance(problem_direct, dict) and problem_direct.get("domain"):
+        payload = problem_direct
     else:
-        payload = raw  # flat fields
-
-    # If this is a retry message (from Verifier), 'problem' field is nested
-    if isinstance(payload.get("problem"), dict):
-        payload = payload["problem"]
+        payload_str = raw.get("data") or ""
+        if payload_str:
+            try:
+                payload = json.loads(payload_str) if isinstance(payload_str, str) else payload_str
+            except (json.JSONDecodeError, TypeError):
+                payload = {}
+        else:
+            payload = raw
+        if isinstance(payload.get("problem"), dict):
+            payload = payload["problem"]
 
     # Require at least an id or description to be a valid problem
     if not (payload.get("id") or payload.get("description")):
@@ -279,6 +284,17 @@ class Solver:
                 plan.id,
                 state.attempt_count,
             )
+            # Override: escalate to lora_finetune if memory-adapted prompt_patch is insufficient
+            if plan.approach == "prompt_patch":
+                _failures = self.retriever.get_failures(problem.domain)
+                if _should_propose_finetune(problem, _failures):
+                    logger.info(
+                        "solve: overriding memory-adapted prompt_patch → lora_finetune "
+                        "(problem_id=%s failure_rate=%.2f)",
+                        problem.id, problem.failure_rate,
+                    )
+                    plan = self.generator._build_finetune_plan(problem)
+                    state.tried_approaches.append("lora_finetune")
             return plan
 
         # ── Step 2b: Generate novel solution via vLLM ─────────────────────────
@@ -288,6 +304,16 @@ class Solver:
             problem.id,
             state.attempt_count,
         )
+        # Back off vLLM if trainer holds the training lock
+        _backoff_iters = 0
+        try:
+            _lock_r = _redis_connect()
+            while _lock_r.exists(TRAINING_LOCK_KEY):
+                _backoff_iters += 1
+                logger.info("Training lock active — backing off vLLM (iter=%d), sleeping 20s", _backoff_iters)
+                import time as _time; _time.sleep(20)
+        except Exception:
+            pass  # non-fatal: if redis check fails, proceed
         failures = self.retriever.get_failures(problem.domain)
         plan = self.generator.generate(problem, failures)
         state.tried_approaches.append(plan.approach)
@@ -312,20 +338,24 @@ def run() -> None:
     solver = Solver()
     r = _redis_connect()
 
-    # Separate cursors for each stream we watch
-    cursor_formulate = "$"   # new problems from Formulator
-    cursor_solve     = "$"   # retries from Verifier
+    # Consumer group so multiple solver instances share the queue
+    consumer_name = f"solver-{os.getpid()}"
+    for queue in [FORMULATE_QUEUE, SOLVE_QUEUE]:
+        try:
+            r.xgroup_create(queue, CONSUMER_GROUP, id="0", mkstream=True)
+            logger.info("Created consumer group '%s' on %s", CONSUMER_GROUP, queue)
+        except Exception:
+            pass  # group already exists
 
     while True:
         try:
-            # ── Read from both queues in one blocking call ────────────────────
-            streams = r.xread(
-                {
-                    FORMULATE_QUEUE: cursor_formulate,
-                    SOLVE_QUEUE:     cursor_solve,
-                },
+            # ── Read from both queues via consumer group ──────────────────────
+            streams = r.xreadgroup(
+                CONSUMER_GROUP,
+                consumer_name,
+                {FORMULATE_QUEUE: ">", SOLVE_QUEUE: ">"},
                 block=BLOCK_MS,
-                count=5,
+                count=2,
             )
 
             if not streams:
@@ -334,11 +364,6 @@ def run() -> None:
 
             for stream_name, messages in streams:
                 for msg_id, msg_data in messages:
-                    # Advance cursor for this stream
-                    if stream_name == FORMULATE_QUEUE:
-                        cursor_formulate = msg_id
-                    else:
-                        cursor_solve = msg_id
 
                     try:
                         _dispatch(solver, r, stream_name, msg_id, msg_data)
@@ -350,14 +375,19 @@ def run() -> None:
                             msg_exc,
                             exc_info=True,
                         )
+                    finally:
+                        try:
+                            r.xack(stream_name, CONSUMER_GROUP, msg_id)
+                        except Exception:
+                            pass
                         # Never drop the daemon
 
         except redis.RedisError as redis_exc:
             logger.error("Redis error: %s — reconnecting in 5s…", redis_exc)
             time.sleep(5)
             r = _redis_connect()
-            cursor_formulate = "$"
-            cursor_solve     = "$"
+            cursor_formulate = "0"
+            cursor_solve     = "0"
 
         except Exception as exc:
             logger.error(
@@ -393,7 +423,7 @@ def _dispatch(
             problem.priority_score,
         )
         plan = solver.solve(problem)
-        _publish_plan(r, plan, msg_id)
+        _publish_plan(r, plan, msg_id, problem)
 
     elif stream_name == SOLVE_QUEUE and _is_retry_message(msg_data):
         # ── Retry from Verifier ───────────────────────────────────────────────
@@ -411,7 +441,7 @@ def _dispatch(
             failure_mode,
         )
         plan = solver.solve(problem)
-        _publish_plan(r, plan, msg_id)
+        _publish_plan(r, plan, msg_id, problem)
 
     else:
         # Non-retry SOLVE_QUEUE message (our own writes or Verifier passes) — skip
@@ -420,9 +450,12 @@ def _dispatch(
         )
 
 
-def _publish_plan(r: redis.Redis, plan: SolutionPlan, source_msg_id: str) -> None:
-    """Serialize a SolutionPlan and push it to SOLVE_QUEUE."""
-    payload = json.dumps(dataclasses.asdict(plan), default=str)
+def _publish_plan(r: redis.Redis, plan: SolutionPlan, source_msg_id: str, problem: ProblemPacket = None) -> None:
+    """Serialize a SolutionPlan (+ problem context) and push it to SOLVE_QUEUE."""
+    payload = json.dumps({
+        "plan": dataclasses.asdict(plan),
+        "problem": dataclasses.asdict(problem) if problem else {},
+    }, default=str)
     stream_id = r.xadd(SOLVE_QUEUE, {"data": payload})
     logger.info(
         "Published plan_id=%s approach=%s from_memory=%s problem_id=%s "

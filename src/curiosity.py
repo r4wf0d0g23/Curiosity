@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Curiosity — Master process.
-Spawns all 5 daemons, monitors health, restarts on failure.
+Spawns all 6 daemons, monitors health, restarts on failure.
 Never stops. Never asks for directions.
 """
 import subprocess
@@ -34,6 +34,7 @@ DAEMONS = [
     ("solver",     ["python3", "-m", "src.solver.solver"]),
     ("verifier",   ["python3", "-m", "src.verifier.verifier"]),
     ("memorizer",  ["python3", "-m", "src.memorizer.memorizer"]),
+    ("trainer",    ["python3", "-m", "src.trainer.trainer"]),
 ]
 
 MAX_BACKOFF = 60   # seconds
@@ -52,8 +53,8 @@ def start_daemon(name: str, cmd: list[str]) -> subprocess.Popen | None:
         proc = subprocess.Popen(
             cmd,
             cwd=Path.home() / "curiosity_code",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         log.info(f"Daemon {name} started (pid={proc.pid})")
         return proc

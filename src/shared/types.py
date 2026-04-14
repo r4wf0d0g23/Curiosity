@@ -63,6 +63,36 @@ class VerificationResult:
 
 
 @dataclass
+class TrainingJob:
+    """Represents a LoRA fine-tuning job dispatched to the Trainer daemon."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    problem_id: str = ""
+    solution_id: str = ""
+    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+
+    # Training parameters
+    training_domain: str = ""
+    n_pairs: int = 100                  # number of Q&A training pairs to generate
+    lora_rank: int = 16                 # LoRA rank (r)
+    lora_alpha: int = 32                # LoRA alpha scaling
+    epochs: int = 2                     # training epochs
+    learning_rate: float = 2e-4
+    target_modules: list = field(default_factory=lambda: ["q_proj", "v_proj"])
+    batch_size: int = 4
+
+    # Runtime state
+    status: Literal["queued", "generating_data", "training", "loading", "done", "failed"] = "queued"
+    adapter_path: str = ""              # set after training completes
+    adapter_name: str = ""              # vLLM adapter identifier
+    error: str = ""
+    duration_sec: float = 0.0
+
+    # Problem context (carried from ProblemPacket for data generation)
+    success_criterion: str = ""
+    description: str = ""
+
+
+@dataclass
 class MemoryPath:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())

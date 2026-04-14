@@ -108,7 +108,10 @@ def _get_lora_config() -> Optional[Dict[str, Any]]:
     known config file path on disk. Swap this out for a real API call once
     vLLM's dynamic LoRA endpoint is in use.
     """
-    lora_cfg_path = Path(os.environ.get("CURIOSITY_LORA_CONFIG", ""))
+    lora_cfg_path_str = os.environ.get("CURIOSITY_LORA_CONFIG", "").strip()
+    if not lora_cfg_path_str:
+        return None
+    lora_cfg_path = Path(lora_cfg_path_str)
     if lora_cfg_path.exists():
         try:
             return json.loads(lora_cfg_path.read_text())
@@ -217,8 +220,9 @@ def restore_checkpoint(checkpoint_id: str) -> CheckpointRecord:
 
     # 2. Restore LoRA adapter config (if any)
     if record.lora_adapter:
-        lora_cfg_path = Path(os.environ.get("CURIOSITY_LORA_CONFIG", ""))
-        if lora_cfg_path.name:
+        lora_cfg_path_str = os.environ.get("CURIOSITY_LORA_CONFIG", "").strip()
+        lora_cfg_path = Path(lora_cfg_path_str) if lora_cfg_path_str and Path(lora_cfg_path_str).name else None
+        if lora_cfg_path:
             try:
                 lora_cfg_path.write_text(json.dumps(record.lora_adapter, indent=2), encoding="utf-8")
                 logger.info("[checkpoint] LoRA adapter config restored")

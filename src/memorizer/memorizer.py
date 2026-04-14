@@ -68,6 +68,21 @@ def _redis_connect() -> redis.Redis:
 
 def _deserialize_verification_result(data: dict) -> VerificationResult:
     """Reconstruct a VerificationResult from the Redis message payload."""
+    direct = data.get("result")
+    if isinstance(direct, dict):
+        return VerificationResult(
+            id=direct.get("id", ""),
+            solution_id=direct.get("solution_id", ""),
+            problem_id=direct.get("problem_id", ""),
+            timestamp=direct.get("timestamp", datetime.utcnow().isoformat()),
+            outcome=direct.get("outcome", "fail"),
+            criterion_score=float(direct.get("criterion_score", 0.0)),
+            regression_detected=bool(direct.get("regression_detected", False)),
+            regression_details=direct.get("regression_details", ""),
+            checkpoint_id=direct.get("checkpoint_id", ""),
+            rolled_back=bool(direct.get("rolled_back", False)),
+            failure_mode=direct.get("failure_mode", ""),
+        )
     payload_str = data.get("payload") or data.get("verification_result") or ""
     if payload_str:
         try:
@@ -94,6 +109,15 @@ def _deserialize_verification_result(data: dict) -> VerificationResult:
 
 
 def _deserialize_solution_plan(data: dict) -> SolutionPlan:
+    direct = data.get("solution")
+    if isinstance(direct, dict):
+        return SolutionPlan(
+            id=direct.get("id",""), problem_id=direct.get("problem_id",""),
+            timestamp=direct.get("timestamp",""), approach=direct.get("approach","prompt_patch"),
+            description=direct.get("description",""), modification_spec=direct.get("modification_spec",{}),
+            expected_outcome=direct.get("expected_outcome",""), checkpoint_id=direct.get("checkpoint_id",""),
+            from_memory=bool(direct.get("from_memory",False)), memory_solution_id=direct.get("memory_solution_id"),
+        )
     payload_str = data.get("solution_plan") or ""
     if payload_str:
         try:
@@ -118,6 +142,16 @@ def _deserialize_solution_plan(data: dict) -> SolutionPlan:
 
 
 def _deserialize_problem_packet(data: dict) -> ProblemPacket:
+    direct = data.get("problem")
+    if isinstance(direct, dict):
+        return ProblemPacket(
+            id=direct.get("id",""), timestamp=direct.get("timestamp",""),
+            domain=direct.get("domain","unknown"), description=direct.get("description",""),
+            failure_rate=float(direct.get("failure_rate",0)), frequency=int(direct.get("frequency",0)),
+            novelty_score=float(direct.get("novelty_score",0)), priority_score=float(direct.get("priority_score",0)),
+            success_criterion=direct.get("success_criterion",""), criterion_type=direct.get("criterion_type",""),
+            scope=direct.get("scope","swim"), source=direct.get("source","gap"),
+        )
     payload_str = data.get("problem_packet") or ""
     if payload_str:
         try:
@@ -145,9 +179,18 @@ def _deserialize_problem_packet(data: dict) -> ProblemPacket:
 
 def _build_memory_path(msg_data: dict) -> MemoryPath:
     """Construct a MemoryPath from a raw Redis stream message dict."""
-    problem = _deserialize_problem_packet(msg_data)
-    solution = _deserialize_solution_plan(msg_data)
-    result = _deserialize_verification_result(msg_data)
+    # The stream entry has a 'data' key containing a JSON string — parse it first
+    raw = msg_data.get("data", "")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            parsed = msg_data
+    else:
+        parsed = msg_data
+    problem = _deserialize_problem_packet(parsed)
+    solution = _deserialize_solution_plan(parsed)
+    result = _deserialize_verification_result(parsed)
     return MemoryPath(problem=problem, solution=solution, result=result)
 
 
@@ -157,17 +200,26 @@ def process_message(msg_data: dict, store: MemoryStore, r: redis.Redis) -> str:
     memory_id = store.store_path(path)
 
     # Loop closure — notify Assessor that new memory is available
-    r.xadd(
-        ASSESS_QUEUE,
-        {
-            "event": "memory_added",
-            "memory_id": memory_id,
-            "domain": path.problem.domain,
-            "outcome": path.result.outcome,
-            "criterion_score": str(path.result.criterion_score),
-            "timestamp": datetime.utcnow().isoformat(),
-        },
-    )
+    # Backpressure: skip requeue if ASSESS_QUEUE is already overloaded
+    ASSESS_BACKPRESSURE_LIMIT = 400
+    assess_depth = r.xlen(ASSESS_QUEUE)
+    if assess_depth >= ASSESS_BACKPRESSURE_LIMIT:
+        logger.warning(
+            "Loop closure SKIPPED (backpressure): ASSESS depth=%d >= %d (memory_id=%s domain=%s)",
+            assess_depth, ASSESS_BACKPRESSURE_LIMIT, memory_id, path.problem.domain,
+        )
+    else:
+        r.xadd(
+            ASSESS_QUEUE,
+            {
+                "event": "memory_added",
+                "memory_id": memory_id,
+                "domain": path.problem.domain,
+                "outcome": path.result.outcome,
+                "criterion_score": str(path.result.criterion_score),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
     logger.info(
         "Loop closed: memory_id=%s → %s written to %s",
         memory_id,
@@ -188,7 +240,7 @@ def run():
     r = _redis_connect()
 
     # Track stream position; start from the current tail on fresh start
-    last_id = "$"
+    last_id = "0"
     stored_count = 0
 
     while True:
@@ -233,7 +285,7 @@ def run():
             logger.error("Redis error: %s — reconnecting in 5s…", redis_exc)
             time.sleep(5)
             r = _redis_connect()
-            last_id = "$"  # resume from current tail after reconnect
+            last_id = "0"
 
         except Exception as exc:
             logger.error("Unexpected error: %s — continuing in 2s…", exc, exc_info=True)

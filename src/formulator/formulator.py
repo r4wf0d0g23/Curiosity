@@ -200,7 +200,7 @@ def run():
     history: deque = deque(maxlen=HISTORY_MAX)
 
     r = _redis_connect()
-    last_id = "$"  # start from current tail; use '0' to replay all
+    last_id = "0"  # start from current tail; use '0' to replay all
 
     processed_total = 0
     skipped_total   = 0
@@ -278,7 +278,7 @@ def run():
             logger.error("Redis error: %s — reconnecting in 5 s…", redis_exc)
             time.sleep(5)
             r = _redis_connect()
-            last_id = "$"
+            last_id = "0"
 
         except Exception as exc:
             logger.error("Unexpected error: %s — continuing in 2 s…", exc, exc_info=True)

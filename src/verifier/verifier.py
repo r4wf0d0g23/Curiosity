@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import re
+
 import redis
 import requests
 
@@ -60,7 +62,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from src.shared.types import ProblemPacket, SolutionPlan, VerificationResult  # noqa: E402
+from src.shared.types import ProblemPacket, SolutionPlan, TrainingJob, VerificationResult  # noqa: E402
 from src.verifier.checkpoint import (  # noqa: E402
     CheckpointManager,
     CheckpointRecord,
@@ -78,6 +80,11 @@ REDIS_DB            = int(os.environ.get("REDIS_DB", 0))
 
 SOLVE_QUEUE         = os.environ.get("SOLVE_QUEUE", "SOLVE_QUEUE")
 MEMORIZE_QUEUE      = os.environ.get("MEMORIZE_QUEUE", "MEMORIZE_QUEUE")
+TRAIN_QUEUE         = os.environ.get("TRAIN_QUEUE", "TRAIN_QUEUE")
+
+# Redis keys used by the trainer daemon
+ACTIVE_ADAPTERS_KEY = "CURIOSITY_ACTIVE_ADAPTERS"
+TRAINING_LOCK_KEY   = "CURIOSITY_TRAINING_LOCK"
 
 VLLM_BASE_URL       = os.environ.get("VLLM_BASE_URL", "http://localhost:8001")
 SYSTEM_PROMPT_PATH  = Path(os.environ.get(
@@ -90,9 +97,10 @@ BENCHMARK_DIR       = Path(os.environ.get(
 ))
 
 REDIS_BLOCK_MS      = int(os.environ.get("REDIS_BLOCK_MS", 2000))
+VERIFIER_CONSUMER_GROUP = "verifiers"
 REDIS_RETRY_BACKOFF = float(os.environ.get("REDIS_RETRY_BACKOFF", 5.0))  # seconds
-CRITERION_TIMEOUT   = int(os.environ.get("CRITERION_TIMEOUT", 120))       # seconds
-REGRESSION_TIMEOUT  = int(os.environ.get("REGRESSION_TIMEOUT", 300))      # seconds
+CRITERION_TIMEOUT   = int(os.environ.get("CRITERION_TIMEOUT", 3600))   # 1 hour default       # seconds
+REGRESSION_TIMEOUT  = int(os.environ.get("REGRESSION_TIMEOUT", 1800))  # 30 min default      # seconds
 
 
 # ---------------------------------------------------------------------------
@@ -123,33 +131,76 @@ def _apply_prompt_patch(spec: Dict[str, Any]) -> None:
     else:
         new_text = insert  # 'replace' with insert field
 
+    if not new_text.strip():
+        logger.warning("[apply] prompt_patch: refusing empty write — spec=%s", spec)
+        return
     SYSTEM_PROMPT_PATH.write_text(new_text, encoding="utf-8")
     logger.info("[apply] prompt_patch written to %s", SYSTEM_PROMPT_PATH)
 
 
 def _apply_lora_finetune(spec: Dict[str, Any]) -> None:
     """
-    Placeholder — will load a LoRA adapter into the vLLM instance.
-    spec keys (future): 'adapter_path', 'adapter_name', 'rank', 'alpha'
+    Handle LoRA fine-tuning plans. Two modes:
+
+    1. Initial dispatch: spec has no 'adapter_path' — the plan is requesting
+       training. We build a TrainingJob and push it to TRAIN_QUEUE. The
+       verifier then skips further verification (training is async).
+
+    2. Post-training verification: spec has 'adapter_path' + 'adapter_name' —
+       the trainer has completed and we verify the loaded adapter by running
+       benchmarks with the LoRA request.
     """
-    logger.info("[apply] lora_finetune placeholder — spec: %s", spec)
-    # TODO: call vLLM dynamic LoRA load endpoint when available
-    # e.g. requests.post(f"{VLLM_BASE_URL}/v1/load_lora_adapter", json=spec)
-    raise NotImplementedError(
-        "lora_finetune is a v0.1 placeholder — real implementation pending vLLM LoRA API."
-    )
+    if spec.get("adapter_path"):
+        # Post-training: adapter already loaded by trainer daemon, nothing to apply
+        logger.info(
+            "[apply] lora_finetune: adapter already loaded — name=%s path=%s",
+            spec.get("adapter_name"), spec.get("adapter_path"),
+        )
+        return
+
+    # Initial dispatch: push training job to TRAIN_QUEUE
+    logger.info("[apply] lora_finetune: dispatching training job to TRAIN_QUEUE")
+    raise _LoraDispatchSignal(spec)
 
 
 def _apply_weight_edit(spec: Dict[str, Any]) -> None:
     """
-    Placeholder — will apply ROME/MEMIT weight edits to the model.
-    spec keys (future): 'method', 'subject', 'relation', 'target', 'layer_range'
+    Weight edit via targeted micro-finetune.
+    Converts ROME-style edit triples into a mini TrainingJob and dispatches
+    to TRAIN_QUEUE. The trainer generates Q&A pairs focused on the specific
+    facts and applies QLoRA (rank=8, 1–3 epochs) to teach them.
+
+    spec keys:
+      method : str  — "ROME" or similar (informational only)
+      edits  : list of {"subject": ..., "relation": ..., "target": ...}
     """
-    logger.info("[apply] weight_edit placeholder — spec: %s", spec)
-    # TODO: integrate ROME/MEMIT editing library
-    raise NotImplementedError(
-        "weight_edit is a v0.1 placeholder — real implementation pending ROME/MEMIT integration."
-    )
+    edits = spec.get("edits", [])
+    if not edits:
+        # Fallback: spec may use flat keys
+        subject  = spec.get("subject", "")
+        relation = spec.get("relation", "")
+        target   = spec.get("target", "")
+        if subject and target:
+            edits = [{"subject": subject, "relation": relation, "target": target}]
+    if not edits:
+        raise ValueError("weight_edit spec missing 'edits' list — cannot dispatch")
+    logger.info("[apply] weight_edit: dispatching micro-finetune for %d edit(s) to TRAIN_QUEUE", len(edits))
+    raise _WeightEditDispatchSignal(spec, edits)
+
+
+class _WeightEditDispatchSignal(Exception):
+    """Raised by _apply_weight_edit to signal dispatch of a micro-finetune to TRAIN_QUEUE."""
+    def __init__(self, spec, edits):
+        super().__init__("weight_edit_dispatch")
+        self.spec  = spec
+        self.edits = edits
+
+
+class _LoraDispatchSignal(Exception):
+    """Raised by _apply_lora_finetune to signal the verifier to dispatch to TRAIN_QUEUE."""
+    def __init__(self, spec: Dict[str, Any]):
+        self.spec = spec
+        super().__init__("lora_dispatch")
 
 
 def _apply_composite(spec: Dict[str, Any]) -> None:
@@ -181,43 +232,70 @@ def apply_modification(plan: SolutionPlan) -> None:
 # Success criterion evaluators
 # ---------------------------------------------------------------------------
 
-def _run_benchmark(criterion: str, timeout: int) -> Tuple[bool, float, str]:
+def _run_benchmark(
+    problem: "ProblemPacket",
+    plan: "SolutionPlan",
+    timeout: int,
+    lora_request: Optional[Dict[str, Any]] = None,
+) -> Tuple[bool, float, str]:
     """
-    Run a benchmark-style criterion.
-    criterion format: 'benchmark:<script_path>:<pass_threshold>'
+    Run a benchmark-style criterion using a JSON benchmark file.
+    Parses benchmark_id and threshold from problem.success_criterion.
+    Optionally passes a lora_request to vLLM for adapter-based inference.
     Returns (passed, score, detail).
     """
-    parts = criterion.split(":", 2)
-    if len(parts) < 2:
-        return False, 0.0, f"Malformed benchmark criterion: {criterion}"
-    script = parts[1] if len(parts) > 1 else ""
-    threshold = float(parts[2]) if len(parts) > 2 else 0.8
+    m = re.search(r"Pass rate on (\S+) suite must reach >= ([\d.]+)", problem.success_criterion)
+    if m:
+        benchmark_id = m.group(1)
+        threshold = float(m.group(2))
+    else:
+        benchmark_id = f"{problem.domain}_basic"
+        threshold = 0.85
 
-    script_path = Path(script)
-    if not script_path.exists():
-        return False, 0.0, f"Benchmark script not found: {script_path}"
+    benchmark_path = Path.home() / "curiosity" / "benchmarks" / "gap" / f"{benchmark_id}.json"
+    if not benchmark_path.exists():
+        return False, 0.0, f"Benchmark not found: {benchmark_id}"
 
     try:
-        result = subprocess.run(
-            [sys.executable, str(script_path)],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        # Expect the script to print a JSON line: {"score": 0.92}
-        score = 0.0
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("{"):
-                try:
-                    data = json.loads(line)
-                    score = float(data.get("score", 0.0))
-                    break
-                except Exception:
-                    pass
-        passed = result.returncode == 0 and score >= threshold
-        detail = result.stdout[-500:] + result.stderr[-200:]
-        return passed, score, detail
-    except subprocess.TimeoutExpired:
-        return False, 0.0, f"Benchmark timed out after {timeout}s"
+        items = json.loads(benchmark_path.read_text(encoding="utf-8"))
+        if not items:
+            return False, 0.0, "Empty benchmark file"
+
+        passed_count = 0
+        details: List[str] = []
+        for item in items:
+            prompt   = item.get("prompt", "")
+            expected = item.get("expected", "")
+
+            try:
+                request_body: Dict[str, Any] = {
+                    "model": "nemotron3-super",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                    "max_tokens": 512,
+                }
+                if lora_request:
+                    request_body["lora_request"] = lora_request
+
+                resp = requests.post(
+                    f"{VLLM_BASE_URL}/v1/chat/completions",
+                    json=request_body,
+                    timeout=timeout,
+                )
+                resp.raise_for_status()
+                answer = resp.json()["choices"][0]["message"]["content"]
+                if expected.lower() in answer.lower():
+                    passed_count += 1
+                else:
+                    details.append(f"FAIL: expected {expected!r} not in response")
+            except Exception as exc:
+                details.append(f"ERROR: {exc}")
+
+        score = passed_count / len(items)
+        detail_str = f"{passed_count}/{len(items)} passed"
+        if details:
+            detail_str += "; " + "; ".join(details[:5])
+        return score >= threshold, score, detail_str
     except Exception as exc:
         return False, 0.0, f"Benchmark error: {exc}"
 
@@ -272,7 +350,7 @@ def _run_llm_judge(criterion: str, plan: SolutionPlan, timeout: int) -> Tuple[bo
         resp = requests.post(
             f"{VLLM_BASE_URL}/v1/chat/completions",
             json={
-                "model": "default",
+                "model": "nemotron3-super",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0,
                 "max_tokens": 200,
@@ -310,7 +388,7 @@ def evaluate_criterion(
     criterion_type = problem.criterion_type
 
     if criterion_type == "benchmark" or criterion.startswith("benchmark:"):
-        return _run_benchmark(criterion, timeout)
+        return _run_benchmark(problem, plan, timeout)
     elif criterion_type == "unit_test" or criterion.startswith("unit_test:"):
         return _run_unit_test(criterion, timeout)
     elif criterion_type == "llm_judge":
@@ -427,6 +505,20 @@ def _process_one(
         logger.info("[verifier] Applying %s modification for plan %s", plan.approach, plan.id)
         apply_modification(plan)
         logger.info("[verifier] Modification applied successfully")
+    except _LoraDispatchSignal as sig:
+        # LoRA fine-tuning needs async training — dispatch to TRAIN_QUEUE
+        logger.info("[verifier] LoRA dispatch: pushing training job to TRAIN_QUEUE")
+        result.outcome = "fail"
+        result.failure_mode = "lora_dispatched_to_trainer"
+        result._lora_dispatch_spec = sig.spec  # type: ignore[attr-defined]
+        return result
+    except _WeightEditDispatchSignal as sig:
+        # Weight edit — dispatch as micro-finetune to TRAIN_QUEUE
+        logger.info("[verifier] Weight-edit dispatch: converting %d edit(s) to micro-finetune", len(sig.edits))
+        self._dispatch_weight_edit_job(problem, plan, sig.edits)
+        result.outcome = "fail"
+        result.failure_mode = "weight_edit_dispatched_to_trainer"
+        return result
     except NotImplementedError as exc:
         logger.warning("[verifier] Modification not implemented: %s", exc)
         result.outcome = "fail"
@@ -442,9 +534,45 @@ def _process_one(
         return result
 
     # Step 3 — Evaluate success criterion
+    # For lora_finetune plans returning from training, run A/B comparison
+    lora_request = None
+    if plan.approach == "lora_finetune" and plan.modification_spec.get("adapter_name"):
+        adapter_name = plan.modification_spec["adapter_name"]
+        adapter_path = plan.modification_spec.get("adapter_path", "")
+        lora_request = {
+            "lora_name": adapter_name,
+            "lora_int_id": 1,
+            "lora_path": adapter_path,
+        }
+        logger.info("[verifier] Running A/B benchmark: adapter=%s", adapter_name)
+
     try:
         logger.info("[verifier] Evaluating criterion for problem %s (type=%s)", problem.id, problem.criterion_type)
-        passed, score, detail = evaluate_criterion(problem, plan)
+        if lora_request:
+            # Run WITH adapter
+            passed_with, score_with, detail_with = _run_benchmark(problem, plan, CRITERION_TIMEOUT, lora_request=lora_request)
+            # Run WITHOUT adapter (baseline)
+            passed_base, score_base, detail_base = _run_benchmark(problem, plan, CRITERION_TIMEOUT, lora_request=None)
+            improvement = score_with - score_base
+            logger.info(
+                "[verifier] A/B result: with_adapter=%.3f baseline=%.3f improvement=%.3f",
+                score_with, score_base, improvement,
+            )
+            # Pass if adapter improves by >5% over baseline
+            passed = improvement > 0.05
+            score = score_with
+            detail = (
+                f"adapter={score_with:.3f} baseline={score_base:.3f} "
+                f"improvement={improvement:+.3f}; {detail_with}"
+            )
+        else:
+            # Pause if trainer holds vLLM lock
+            _train_lock_iters = 0
+            while r.exists(TRAINING_LOCK_KEY):
+                _train_lock_iters += 1
+                logger.info("[verifier] Training lock active — pausing benchmark (iter=%d)", _train_lock_iters)
+                import time as _tv; _tv.sleep(20)
+            passed, score, detail = evaluate_criterion(problem, plan)
         result.criterion_score = score
         logger.info("[verifier] Criterion result: passed=%s score=%.3f", passed, score)
     except Exception as exc:
@@ -471,11 +599,20 @@ def _process_one(
     overall_pass = passed and regression_passed
 
     if overall_pass:
-        # Step 5a — PASS: commit (nothing to do for v0.1 — modification already applied)
+        # Step 5a — PASS: commit
         result.outcome        = "pass"
         result.failure_mode   = ""
         result.rolled_back    = False
         logger.info("[verifier] ✅ PASS plan=%s score=%.3f", plan.id, score)
+
+        # For LoRA adapters: keep it loaded permanently (register in active list)
+        if lora_request and plan.modification_spec.get("adapter_name"):
+            _register_active_adapter(
+                r,
+                plan.modification_spec["adapter_name"],
+                plan.modification_spec.get("adapter_path", ""),
+                plan.modification_spec.get("training_domain", ""),
+            )
     else:
         # Step 5b — FAIL: rollback
         result.outcome = "fail"
@@ -486,7 +623,67 @@ def _process_one(
         logger.warning("[verifier] ❌ FAIL plan=%s — rolling back", plan.id)
         _safe_rollback(cp.id, result)
 
+        # For LoRA adapters: unload and clean up on failure
+        if lora_request and plan.modification_spec.get("adapter_name"):
+            _unload_failed_adapter(
+                r,
+                plan.modification_spec["adapter_name"],
+                plan.modification_spec.get("adapter_path", ""),
+            )
+
     return result
+
+
+def _register_active_adapter(
+    r: redis.Redis, adapter_name: str, adapter_path: str, domain: str,
+) -> None:
+    """Register a verified LoRA adapter as permanently active."""
+    try:
+        import json as _json
+        info = _json.dumps({
+            "name": adapter_name,
+            "path": adapter_path,
+            "domain": domain,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+        })
+        r.hset(ACTIVE_ADAPTERS_KEY, adapter_name, info)
+        logger.info("[verifier] Registered active adapter: %s", adapter_name)
+    except Exception as exc:
+        logger.error("[verifier] Failed to register adapter %s: %s", adapter_name, exc)
+
+
+def _unload_failed_adapter(r: redis.Redis, adapter_name: str, adapter_path: str) -> None:
+    """Unload a failed LoRA adapter from vLLM and clean up files."""
+    # Unload from vLLM
+    try:
+        resp = requests.post(
+            f"{VLLM_BASE_URL}/v1/unload_lora_adapter",
+            json={"lora_name": adapter_name},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            logger.info("[verifier] Unloaded failed adapter: %s", adapter_name)
+        else:
+            logger.warning("[verifier] Unload adapter returned %d: %s", resp.status_code, resp.text)
+    except Exception as exc:
+        logger.error("[verifier] Failed to unload adapter %s: %s", adapter_name, exc)
+
+    # Remove from active adapters list
+    try:
+        r.hdel(ACTIVE_ADAPTERS_KEY, adapter_name)
+    except Exception:
+        pass
+
+    # Delete adapter files
+    if adapter_path:
+        adapter_dir = Path(adapter_path)
+        if adapter_dir.exists() and adapter_dir.is_dir():
+            import shutil
+            try:
+                shutil.rmtree(adapter_dir)
+                logger.info("[verifier] Deleted failed adapter files: %s", adapter_path)
+            except Exception as exc:
+                logger.error("[verifier] Failed to delete adapter files %s: %s", adapter_path, exc)
 
 
 def _safe_rollback(checkpoint_id: str, result: VerificationResult) -> None:
@@ -512,7 +709,7 @@ class VerifierDaemon:
 
     def __init__(self) -> None:
         self.r: Optional[redis.Redis] = None
-        self._stream_cursor: Dict[str, str] = {SOLVE_QUEUE: "$"}
+        self._stream_cursor: Dict[str, str] = {SOLVE_QUEUE: "0"}
 
     # ------------------------------------------------------------------
     # Redis connection management
@@ -547,7 +744,16 @@ class VerifierDaemon:
         """
         r = self._ensure_connected()
         try:
-            results = r.xread(self._stream_cursor, block=REDIS_BLOCK_MS, count=1)
+            consumer_name = f"verifier-{os.getpid()}"
+            try:
+                r.xgroup_create(SOLVE_QUEUE, VERIFIER_CONSUMER_GROUP, id="0", mkstream=True)
+            except Exception:
+                pass
+            results = r.xreadgroup(
+                VERIFIER_CONSUMER_GROUP, consumer_name,
+                {SOLVE_QUEUE: ">"},
+                block=REDIS_BLOCK_MS, count=1
+            )
         except redis.RedisError as exc:
             logger.error("[verifier] Redis read error: %s", exc)
             self.r = None
@@ -559,37 +765,138 @@ class VerifierDaemon:
         stream_name, entries = results[0]
         entry_id, entry_data = entries[0]
 
-        # Advance cursor so we don't re-process
-        self._stream_cursor[SOLVE_QUEUE] = entry_id
 
         try:
             payload = _parse_stream_entry(entry_data)
             plan    = _deserialize_plan(payload.get("plan", payload))
             problem = _deserialize_problem(payload.get("problem", {}))
-            logger.info("[verifier] Received plan id=%s approach=%s", plan.id, plan.approach)
+            # Preserve attempt_count across requeues (not a SolutionPlan field)
+            plan.attempt_count = int(payload.get("attempt_count", "0"))
+            logger.info("[verifier] Received plan id=%s approach=%s attempt=%d",
+                        plan.id, plan.approach, plan.attempt_count)
             return entry_id, plan, problem
         except Exception as exc:
             logger.error("[verifier] Failed to deserialize entry %s: %s\nraw=%s", entry_id, exc, entry_data)
             return None
 
-    def _publish_result(self, result: VerificationResult) -> None:
-        """Write VerificationResult to MEMORIZE_QUEUE."""
+    def _publish_result(self, result: VerificationResult, problem: ProblemPacket = None, plan: SolutionPlan = None) -> None:
+        """Write full context (result + problem + solution) to MEMORIZE_QUEUE."""
         r = self._ensure_connected()
         try:
-            r.xadd(MEMORIZE_QUEUE, {"data": json.dumps(asdict(result), default=str)})
+            payload = {
+                "result": asdict(result),
+                "problem": asdict(problem) if problem else {},
+                "solution": asdict(plan) if plan else {},
+            }
+            r.xadd(MEMORIZE_QUEUE, {"data": json.dumps(payload, default=str)})
             logger.info("[verifier] Result published to %s (outcome=%s)", MEMORIZE_QUEUE, result.outcome)
         except redis.RedisError as exc:
             logger.error("[verifier] Failed to publish result: %s", exc)
             self.r = None
 
+    def _dispatch_to_trainer(self, plan: SolutionPlan, problem: ProblemPacket) -> None:
+        """Build a TrainingJob from the plan spec and push to TRAIN_QUEUE."""
+        r = self._ensure_connected()
+        spec = plan.modification_spec
+
+        job = TrainingJob(
+            problem_id=problem.id,
+            solution_id=plan.id,
+            training_domain=spec.get("training_domain", problem.domain),
+            n_pairs=int(spec.get("n_pairs", 100)),
+            lora_rank=int(spec.get("lora_rank", 16)),
+            lora_alpha=int(spec.get("lora_alpha", 32)),
+            epochs=int(spec.get("epochs", 2)),
+            learning_rate=float(spec.get("learning_rate", 2e-4)),
+            target_modules=spec.get("target_modules", ["q_proj", "v_proj"]),
+            batch_size=int(spec.get("batch_size", 4)),
+            description=spec.get("description", problem.description),
+            success_criterion=spec.get("success_criterion", problem.success_criterion),
+        )
+
+        payload = {
+            "job": asdict(job),
+            "problem": asdict(problem),
+            "plan": asdict(plan),
+        }
+        try:
+            r.xadd(TRAIN_QUEUE, {"data": json.dumps(payload, default=str)})
+            logger.info(
+                "[verifier] Dispatched training job %s to %s (domain=%s, n_pairs=%d, rank=%d)",
+                job.id, TRAIN_QUEUE, job.training_domain, job.n_pairs, job.lora_rank,
+            )
+        except redis.RedisError as exc:
+            logger.error("[verifier] Failed to dispatch training job: %s", exc)
+            self.r = None
+
+    def _dispatch_weight_edit_job(
+        self, problem: ProblemPacket, plan: SolutionPlan, edits: list
+    ) -> None:
+        """Convert ROME edit triples to a micro-finetune TrainingJob and push to TRAIN_QUEUE."""
+        r = self._ensure_connected()
+
+        # Build a description that tells the data generator exactly what facts to teach
+        fact_lines = []
+        for e in edits:
+            subj = e.get("subject", "?")
+            rel  = e.get("relation", "property")
+            tgt  = e.get("target", "?")
+            fact_lines.append(f"  - {subj}'s {rel} is: {tgt}")
+        facts_block = "\n".join(fact_lines)
+        description = (
+            f"Weight-edit micro-finetune for {problem.domain}. "
+            f"Teach ONLY these specific facts — every Q&A pair must directly reinforce one of them:\n"
+            f"{facts_block}\n"
+            f"Do NOT generate general domain questions. Target ONLY the listed facts."
+        )
+
+        # Small job: 20 pairs per edit, low rank, enough epochs to commit the facts
+        n_pairs = max(20, len(edits) * 20)
+
+        job = TrainingJob(
+            problem_id=problem.id,
+            solution_id=plan.id,
+            training_domain=problem.domain,
+            n_pairs=n_pairs,
+            lora_rank=8,
+            lora_alpha=16,
+            epochs=3,
+            learning_rate=5e-5,
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+            batch_size=4,
+            description=description,
+            success_criterion=problem.success_criterion,
+        )
+
+        payload = {
+            "job":     asdict(job),
+            "problem": asdict(problem),
+            "plan":    asdict(plan),
+        }
+        try:
+            r.xadd(TRAIN_QUEUE, {"data": json.dumps(payload, default=str)})
+            logger.info(
+                "[verifier] Dispatched weight-edit job %s to %s "
+                "(domain=%s, edits=%d, n_pairs=%d, rank=8)",
+                job.id, TRAIN_QUEUE, job.training_domain, len(edits), job.n_pairs,
+            )
+        except Exception as exc:
+            logger.error("[verifier] Failed to dispatch weight-edit job: %s", exc)
+            self.r = None
+
     def _requeue_problem(self, problem: ProblemPacket, plan: SolutionPlan, result: VerificationResult) -> None:
         """Send failed problem back to SOLVE_QUEUE with failure context."""
+        current_attempt = getattr(plan, "attempt_count", 0)
+        if current_attempt >= 5:
+            logger.warning("[verifier] Max retries reached for problem %s — discarding", problem.id)
+            return
         r = self._ensure_connected()
         retry_payload = {
             "problem": asdict(problem),
             "plan":    asdict(plan),
             "retry":   "1",
             "failure_mode": result.failure_mode,
+            "attempt_count": str(current_attempt + 1),
         }
         try:
             r.xadd(SOLVE_QUEUE, {
@@ -597,8 +904,8 @@ class VerifierDaemon:
                 "retry":  "1",
                 "from":   "verifier",
             })
-            logger.info("[verifier] Requeued problem %s to %s (failure_mode=%s)",
-                        problem.id, SOLVE_QUEUE, result.failure_mode[:80])
+            logger.info("[verifier] Requeued problem %s to %s (attempt=%d, failure_mode=%s)",
+                        problem.id, SOLVE_QUEUE, current_attempt + 1, result.failure_mode[:80])
         except redis.RedisError as exc:
             logger.error("[verifier] Failed to requeue problem: %s", exc)
             self.r = None
@@ -615,6 +922,25 @@ class VerifierDaemon:
         logger.info("[verifier] Benchmark dir:  %s", BENCHMARK_DIR)
         logger.info("=" * 70)
 
+        # Claim any messages pending from dead consumers (e.g. after restart)
+        # so we don't lose work that was delivered but never acknowledged.
+        try:
+            r = self._ensure_connected()
+            consumer_name = f"verifier-{os.getpid()}"
+            claimed = r.xautoclaim(
+                SOLVE_QUEUE, VERIFIER_CONSUMER_GROUP, consumer_name,
+                min_idle_time=5000, start_id="0-0", count=500
+            )
+            # xautoclaim returns (next_id, entries, deleted_ids)
+            reclaimed = claimed[1] if isinstance(claimed, (list, tuple)) and len(claimed) > 1 else []
+            if reclaimed:
+                logger.info(
+                    "[verifier] Reclaimed %d pending messages from dead consumers",
+                    len(reclaimed)
+                )
+        except Exception as _claim_exc:
+            logger.warning("[verifier] Autoclaim on startup failed (non-fatal): %s", _claim_exc)
+
         while True:
             try:
                 item = self._read_next_plan()
@@ -625,7 +951,7 @@ class VerifierDaemon:
 
                 result = _process_one(plan, problem, self._ensure_connected())
 
-                self._publish_result(result)
+                self._publish_result(result, problem, plan)
 
                 # Increment throughput counter (read by dashboard as VERIFY depth)
                 try:
@@ -634,8 +960,10 @@ class VerifierDaemon:
                     logger.warning("[verifier] Failed to increment VERIFY_COUNT: %s", _incr_exc)
 
                 if result.outcome == "fail":
-                    # Don't requeue placeholder errors — they'll loop forever
-                    if "not_implemented" not in result.failure_mode:
+                    if result.failure_mode == "lora_dispatched_to_trainer":
+                        # Dispatch to TRAIN_QUEUE for async training
+                        self._dispatch_to_trainer(plan, problem)
+                    elif "not_implemented" not in result.failure_mode:
                         self._requeue_problem(problem, plan, result)
                     else:
                         logger.info("[verifier] Skipping requeue for not_implemented plan")

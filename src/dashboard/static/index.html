@@ -3,638 +3,487 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>CURIOSITY // MIND ACTIVE</title>
+<title>CURIOSITY</title>
 <style>
-  :root {
-    --bg:        #0a0a0f;
-    --bg2:       #0f0f1a;
-    --bg3:       #13131f;
-    --border:    #1e1e30;
-    --blue:      #00b4ff;
-    --green:     #00ff9d;
-    --yellow:    #ffe66d;
-    --red:       #ff4d6a;
-    --dim:       #4a4a6a;
-    --text:      #c8c8e8;
-    --text-dim:  #6a6a9a;
-    --pulse-dur: 1.8s;
-  }
+:root {
+  --bg:    #090910;
+  --bg1:   #0d0d18;
+  --bg2:   #111120;
+  --border:#1c1c2e;
+  --blue:  #00b4ff;
+  --green: #00e87a;
+  --yellow:#ffd84d;
+  --red:   #ff4060;
+  --dim:   #3a3a5a;
+  --text:  #c0c0de;
+  --muted: #585878;
+  --mono:  'Courier New', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+a { color: inherit; text-decoration: none; }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+/* ── HEADER ── */
+#header {
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 16px;
+}
+.logo { font-size: 18px; font-weight: bold; color: var(--blue); letter-spacing: 3px; text-shadow: 0 0 12px var(--blue); }
+.header-meta { display: flex; gap: 14px; align-items: center; flex: 1; margin-left: 8px; }
+.meta-chip { color: var(--muted); font-size: 11px; }
+.meta-chip span { color: var(--text); }
+.live { display: flex; align-items: center; gap: 6px; color: var(--green); font-size: 11px; margin-left: auto; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.stale { color: var(--yellow); }
+.stale .live-dot { background: var(--yellow); }
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Courier New', 'Lucida Console', monospace;
-    font-size: 13px;
-    line-height: 1.5;
-    min-height: 100vh;
-  }
+/* ── GRID ── */
+.section { padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.section-title { font-size: 10px; letter-spacing: 2px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; }
 
-  /* ── HEADER ── */
-  header {
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    padding: 14px 24px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
+/* ── QUEUE CARDS ── */
+.queue-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.q-card {
+  flex: 1; min-width: 100px;
+  background: var(--bg1); border: 1px solid var(--border);
+  border-radius: 4px; padding: 10px 12px; text-align: center;
+}
+.q-name { font-size: 10px; color: var(--muted); letter-spacing: 1px; margin-bottom: 6px; }
+.q-depth { font-size: 26px; font-weight: bold; color: var(--text); }
+.q-depth.high { color: var(--yellow); }
+.q-depth.critical { color: var(--red); }
+.q-depth.zero { color: var(--muted); }
+.q-sub { font-size: 10px; color: var(--muted); margin-top: 3px; }
 
-  .header-left { display: flex; align-items: center; gap: 14px; }
+/* ── DAEMON TABLE ── */
+.daemon-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.daemon-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 4px;
+  padding: 9px 12px; display: flex; align-items: center; gap: 10px;
+}
+.daemon-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.stopped { background: var(--red); }
+.daemon-info { flex: 1; }
+.daemon-name { font-size: 11px; color: var(--text); letter-spacing: 1px; }
+.daemon-detail { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.tput { font-size: 11px; color: var(--blue); margin-left: auto; text-align: right; }
 
-  .logo {
-    font-size: 20px;
-    font-weight: bold;
-    color: var(--blue);
-    letter-spacing: 2px;
-    text-shadow: 0 0 16px var(--blue);
-  }
+/* ── SCORES ── */
+.scores-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.score-row { display: flex; align-items: center; gap: 8px; }
+.score-domain { width: 80px; color: var(--muted); font-size: 11px; flex-shrink: 0; }
+.score-bar-wrap { flex: 1; background: var(--bg2); border-radius: 2px; height: 12px; overflow: hidden; }
+.score-bar { height: 100%; transition: width 0.4s; }
+.score-bar.good  { background: var(--green); }
+.score-bar.mid   { background: var(--yellow); }
+.score-bar.bad   { background: var(--red); }
+.score-pct { width: 44px; font-size: 11px; text-align: right; flex-shrink: 0; }
+.score-delta { width: 44px; font-size: 10px; text-align: right; flex-shrink: 0; }
+.delta-pos { color: var(--green); }
+.delta-neg { color: var(--red); }
+.delta-zero { color: var(--muted); }
 
-  .tagline {
-    font-size: 11px;
-    color: var(--text-dim);
-    font-style: italic;
-    margin-top: 2px;
-  }
+/* ── PASS RATE SUMMARY ── */
+.summary-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.stat-block { text-align: center; }
+.stat-val { font-size: 28px; font-weight: bold; }
+.stat-lbl { font-size: 10px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
+.pass-rate-bar { flex: 1; min-width: 200px; }
+.pass-rate-track { height: 20px; background: var(--bg2); border-radius: 2px; overflow: hidden; position: relative; }
+.pass-rate-fill { height: 100%; background: var(--green); transition: width 0.4s; }
+.pass-rate-label { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--text); }
+.approach-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.chip { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--dim); font-size: 10px; color: var(--muted); }
+.chip.lora { border-color: var(--blue); color: var(--blue); }
+.chip.weight { border-color: var(--yellow); color: var(--yellow); }
+.chip.prompt { border-color: var(--dim); color: var(--muted); }
 
-  .live-badge {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 4px 12px;
-    border: 1px solid var(--green);
-    border-radius: 20px;
-    color: var(--green);
-    font-size: 11px;
-    letter-spacing: 1px;
-    background: rgba(0,255,157,0.06);
-  }
+/* ── OUTCOMES TABLE ── */
+.outcomes-table { width: 100%; border-collapse: collapse; }
+.outcomes-table th {
+  font-size: 10px; color: var(--muted); letter-spacing: 1px; text-align: left;
+  padding: 4px 8px; border-bottom: 1px solid var(--border); text-transform: uppercase;
+}
+.outcomes-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.outcomes-table tr:last-child td { border-bottom: none; }
+.outcomes-table tr:hover td { background: var(--bg2); }
+.outcome-pass { color: var(--green); font-weight: bold; }
+.outcome-fail { color: var(--red); font-weight: bold; }
+.failure-text { color: var(--muted); font-size: 11px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.approach-lora { color: var(--blue); }
+.approach-weight { color: var(--yellow); }
+.approach-prompt { color: var(--muted); }
+.ts-cell { color: var(--muted); font-size: 10px; white-space: nowrap; }
 
-  .live-dot {
-    width: 7px; height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: blink var(--pulse-dur) ease-in-out infinite;
-  }
+/* ── PROMPT ── */
+.prompt-box {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 3px;
+  padding: 8px 12px; font-size: 11px; color: var(--text); white-space: pre-wrap;
+  word-break: break-word; max-height: 80px; overflow: hidden;
+}
+.prompt-meta { display: flex; gap: 12px; margin-bottom: 6px; }
+.sha-chip { font-size: 10px; color: var(--muted); font-family: var(--mono); }
 
-  .uptime {
-    font-size: 12px;
-    color: var(--text-dim);
-    padding: 4px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-  }
+/* ── TRAINING STATUS ── */
+.train-progress { margin-top: 10px; }
+.train-progress-bar-wrap { background: var(--border); border-radius: 2px; height: 6px; width: 100%; margin: 4px 0; }
+.train-progress-bar { background: var(--blue); height: 6px; border-radius: 2px; transition: width 0.5s ease; }
+.train-meta { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.train-meta span { white-space: nowrap; }
+.training-row { display: flex; align-items: center; gap: 16px; }
+.training-badge {
+  padding: 4px 12px; border-radius: 2px; font-size: 11px; letter-spacing: 1px;
+  border: 1px solid var(--dim); color: var(--muted);
+}
+.training-badge.active { border-color: var(--blue); color: var(--blue); animation: pulse 1.5s infinite; }
+.adapter-list { display: flex; gap: 8px; }
+.adapter-chip { padding: 2px 8px; border: 1px solid var(--blue); color: var(--blue); border-radius: 2px; font-size: 10px; }
 
-  /* ── GRID ── */
-  .main-grid {
-    display: grid;
-    grid-template-columns: 220px 1fr;
-    grid-template-rows: auto auto auto;
-    gap: 0;
-    max-width: 1200px;
-    margin: 20px auto;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-
-  .panel {
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    padding: 16px 18px;
-  }
-
-  .panel-title {
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--text-dim);
-    margin-bottom: 12px;
-    text-transform: uppercase;
-  }
-
-  /* ── DAEMONS ── */
-  .daemons-panel { grid-column: 1; grid-row: 1; }
-
-  .daemon-row {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 5px 0;
-    font-size: 13px;
-  }
-
-  .daemon-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--dim);
-    flex-shrink: 0;
-    transition: background 0.5s;
-  }
-  .daemon-dot.running {
-    background: var(--green);
-    box-shadow: 0 0 8px var(--green);
-    animation: blink var(--pulse-dur) ease-in-out infinite;
-  }
-  .daemon-dot.stopped { background: var(--red); }
-
-  .daemon-name { color: var(--text); }
-  .daemon-status { margin-left: auto; font-size: 10px; color: var(--text-dim); }
-
-  /* ── THINKING ── */
-  .thinking-panel { grid-column: 2; grid-row: 1; }
-
-  .thinking-label {
-    font-size: 11px;
-    color: var(--text-dim);
-    margin-bottom: 6px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
-
-  .thinking-domain {
-    font-size: 14px;
-    color: var(--blue);
-    font-weight: bold;
-    margin-bottom: 4px;
-  }
-
-  .thinking-desc {
-    color: var(--text);
-    font-size: 13px;
-    line-height: 1.6;
-    font-style: italic;
-    margin-bottom: 12px;
-    min-height: 38px;
-  }
-
-  .priority-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 12px;
-  }
-  .priority-label { color: var(--text-dim); }
-  .priority-bar-wrap {
-    flex: 1;
-    height: 10px;
-    background: var(--bg3);
-    border-radius: 5px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-  }
-  .priority-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--blue), var(--green));
-    border-radius: 5px;
-    transition: width 0.6s cubic-bezier(.4,0,.2,1);
-  }
-  .priority-val { color: var(--yellow); min-width: 34px; text-align: right; }
-
-  /* ── PIPELINE ── */
-  .pipeline-panel {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-
-  .pipeline-flow {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    flex-wrap: wrap;
-    margin-bottom: 14px;
-  }
-
-  .pipeline-stage {
-    display: flex;
-    align-items: center;
-    gap: 0;
-  }
-
-  .stage-box {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg3);
-    font-size: 12px;
-    transition: border-color 0.4s, background 0.4s, box-shadow 0.4s;
-  }
-  .stage-box.active {
-    border-color: var(--blue);
-    background: rgba(0,180,255,0.08);
-    box-shadow: 0 0 12px rgba(0,180,255,0.3);
-  }
-  .stage-name { color: var(--text-dim); font-size: 10px; letter-spacing: 1px; }
-  .stage-count {
-    color: var(--blue);
-    font-size: 15px;
-    font-weight: bold;
-    line-height: 1;
-  }
-  .stage-count.hot { color: var(--green); text-shadow: 0 0 8px var(--green); }
-
-  .pipeline-arrow {
-    padding: 0 8px;
-    color: var(--dim);
-    font-size: 16px;
-  }
-
-  .pipeline-track {
-    height: 8px;
-    background: var(--bg3);
-    border-radius: 4px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    position: relative;
-  }
-
-  .pipeline-pulse {
-    height: 100%;
-    background: linear-gradient(90deg,
-      transparent 0%, var(--blue) 40%, var(--green) 60%, transparent 100%);
-    border-radius: 4px;
-    animation: pipeline-scroll 2.5s linear infinite;
-    width: 40%;
-  }
-
-  /* ── BOTTOM ROW ── */
-  .scores-panel { grid-column: 1 / 2; grid-row: 3; }
-  .solved-panel  { grid-column: 2 / 3; grid-row: 3; }
-
-  .score-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  .score-name {
-    width: 60px;
-    color: var(--text);
-    font-size: 12px;
-    text-transform: capitalize;
-  }
-  .score-bar-wrap {
-    flex: 1;
-    height: 9px;
-    background: var(--bg3);
-    border-radius: 5px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-  }
-  .score-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--blue) 0%, var(--green) 100%);
-    border-radius: 5px;
-    transition: width 0.8s cubic-bezier(.4,0,.2,1);
-  }
-  .score-val {
-    width: 36px;
-    text-align: right;
-    font-size: 12px;
-    color: var(--yellow);
-  }
-  .score-trend { font-size: 11px; color: var(--text-dim); width: 12px; }
-  .score-trend.up   { color: var(--green); }
-  .score-trend.down { color: var(--red); }
-
-  .solved-list {
-    list-style: none;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-  .solved-item {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 12px;
-    animation: fadein 0.5s ease;
-  }
-  .solved-domain {
-    color: var(--blue);
-    font-weight: bold;
-    min-width: 55px;
-  }
-  .solved-score { color: var(--green); }
-  .solved-time  { margin-left: auto; color: var(--text-dim); font-size: 11px; }
-
-  .total-solved {
-    margin-top: 10px;
-    color: var(--text-dim);
-    font-size: 12px;
-  }
-  .total-solved span { color: var(--yellow); font-weight: bold; }
-
-  /* ── STATUS BAR ── */
-  .status-bar {
-    max-width: 1200px;
-    margin: 0 auto 20px;
-    padding: 6px 20px;
-    background: var(--bg2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    display: flex;
-    gap: 16px;
-    font-size: 11px;
-    color: var(--text-dim);
-  }
-  .status-item { display: flex; gap: 5px; }
-  .status-item .k { color: var(--text-dim); }
-  .status-item .v { color: var(--text); }
-  .status-item .v.ok  { color: var(--green); }
-  .status-item .v.err { color: var(--red); }
-
-  /* ── WARM UP PLACEHOLDER ── */
-  .warmup {
-    color: var(--text-dim);
-    font-style: italic;
-    padding: 12px 0;
-  }
-
-  /* ── ANIMATIONS ── */
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.25; }
-  }
-  @keyframes pipeline-scroll {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(350%); }
-  }
-  @keyframes fadein {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  /* scrollbar */
-  ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+/* ── FOOTER ── */
+#footer {
+  padding: 8px 20px; color: var(--muted); font-size: 10px;
+  display: flex; gap: 16px;
+}
 </style>
 </head>
 <body>
 
-<!-- ── HEADER ── -->
-<header>
-  <div class="header-left">
-    <div>
-      <div class="logo">⚡ CURIOSITY // MIND ACTIVE</div>
-      <div class="tagline">A window into the mind of Curiosity</div>
-    </div>
-    <div class="live-badge">
-      <div class="live-dot" id="liveDot"></div>
-      <span id="liveLabel">CONNECTING</span>
-    </div>
+<!-- HEADER -->
+<div id="header">
+  <div class="logo">CURIOSITY</div>
+  <div class="header-meta">
+    <div class="meta-chip">UPTIME <span id="h-uptime">—</span></div>
+    <div class="meta-chip">CYCLE <span id="h-cycle">—</span></div>
+    <div class="meta-chip">PASS <span id="h-pass">—</span></div>
+    <div class="meta-chip">vLLM <span id="h-vllm">—</span></div>
   </div>
-  <div class="uptime">uptime: <span id="uptimeVal">—</span></div>
-</header>
-
-<!-- ── STATUS BAR ── -->
-<div class="status-bar">
-  <div class="status-item"><span class="k">redis:</span> <span class="v" id="redisStatus">—</span></div>
-  <div class="status-item"><span class="k">last update:</span> <span class="v" id="lastUpdate">—</span></div>
-  <div class="status-item"><span class="k">daemons running:</span> <span class="v" id="daemonsRunning">—</span></div>
+  <div class="live" id="live-badge">
+    <div class="live-dot"></div>
+    <span id="live-text">CONNECTING</span>
+  </div>
 </div>
 
-<!-- ── MAIN GRID ── -->
-<div class="main-grid">
-
-  <!-- DAEMONS -->
-  <div class="panel daemons-panel">
-    <div class="panel-title">Daemons</div>
-    <div id="daemonsContainer">
-      <div class="warmup">Connecting…</div>
-    </div>
+<!-- QUEUES -->
+<div class="section">
+  <div class="section-title">Pipeline Queues — pending work (consumer group lag)</div>
+  <div class="queue-row" id="queue-row">
+    <div class="q-card"><div class="q-name">ASSESS</div><div class="q-depth" id="q-ASSESS">—</div></div>
+    <div class="q-card"><div class="q-name">FORMULATE</div><div class="q-depth" id="q-FORMULATE">—</div></div>
+    <div class="q-card"><div class="q-name">SOLVE</div><div class="q-depth" id="q-SOLVE">—</div></div>
+    <div class="q-card"><div class="q-name">MEMORIZE</div><div class="q-depth" id="q-MEMORIZE">—</div></div>
+    <div class="q-card"><div class="q-name">TRAIN</div><div class="q-depth" id="q-TRAIN">—</div></div>
   </div>
+</div>
 
-  <!-- THINKING -->
-  <div class="panel thinking-panel">
-    <div class="panel-title">What It's Thinking</div>
-    <div class="thinking-label">Currently solving:</div>
-    <div class="thinking-domain" id="thinkingDomain">—</div>
-    <div class="thinking-desc" id="thinkingDesc"><em>Warming up…</em></div>
-    <div class="priority-row">
-      <span class="priority-label">Priority:</span>
-      <div class="priority-bar-wrap">
-        <div class="priority-bar-fill" id="priorityFill" style="width:0%"></div>
+<!-- DAEMONS -->
+<div class="section">
+  <div class="section-title">Daemons</div>
+  <div class="daemon-grid" id="daemon-grid">
+    <!-- filled by JS -->
+  </div>
+</div>
+
+<!-- SCORES + SUMMARY -->
+<div class="section">
+  <div class="section-title">Capability Scores</div>
+  <div style="display:flex; gap:24px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:260px;">
+      <div class="scores-grid" id="scores-grid"><!-- JS --></div>
+    </div>
+    <div style="min-width:200px;">
+      <div class="summary-row">
+        <div class="stat-block">
+          <div class="stat-val" id="stat-pass" style="color:var(--green)">—</div>
+          <div class="stat-lbl">PASS</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-val" id="stat-fail" style="color:var(--red)">—</div>
+          <div class="stat-lbl">FAIL</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-val" id="stat-rate" style="color:var(--blue)">—</div>
+          <div class="stat-lbl">RATE</div>
+        </div>
       </div>
-      <span class="priority-val" id="priorityVal">—</span>
+      <div style="margin-top:14px;">
+        <div class="section-title" style="margin-bottom:6px;">Approach Mix (last 200)</div>
+        <div class="approach-chips" id="approach-chips"><!-- JS --></div>
+      </div>
     </div>
   </div>
+</div>
 
-  <!-- PIPELINE -->
-  <div class="panel pipeline-panel">
-    <div class="panel-title">Pipeline Flow</div>
-    <div class="pipeline-flow" id="pipelineFlow">
-      <!-- rendered by JS -->
-    </div>
-    <div class="pipeline-track">
-      <div class="pipeline-pulse"></div>
-    </div>
-  </div>
-
-  <!-- CAPABILITY SCORES -->
-  <div class="panel scores-panel">
-    <div class="panel-title">Capability Scores</div>
-    <div id="scoresContainer">
-      <div class="warmup">Waiting for metrics…</div>
+<!-- TRAINING -->
+<div class="section">
+  <div class="section-title">Training Status</div>
+  <div class="training-row">
+    <div class="training-badge" id="train-badge">IDLE</div>
+    <div class="adapter-list" id="adapter-list">
+      <span style="color:var(--muted);font-size:11px;">no active adapters</span>
     </div>
   </div>
-
-  <!-- RECENT SOLVED -->
-  <div class="panel solved-panel">
-    <div class="panel-title">Recent Solved</div>
-    <ul class="solved-list" id="solvedList">
-      <li><div class="warmup">Warming up…</div></li>
-    </ul>
-    <div class="total-solved">Total solved: <span id="totalSolved">—</span></div>
+  <div class="train-progress" id="train-progress" style="display:none;">
+    <div class="train-progress-bar-wrap">
+      <div class="train-progress-bar" id="train-bar" style="width:0%"></div>
+    </div>
+    <div class="train-meta">
+      <span id="train-step">-</span>
+      <span id="train-pairs">-</span>
+      <span id="train-domain">-</span>
+      <span id="train-job">-</span>
+    </div>
   </div>
+</div>
 
-</div><!-- /main-grid -->
+<!-- SYSTEM PROMPT -->
+<div class="section">
+  <div class="section-title">System Prompt</div>
+  <div class="prompt-meta">
+    <div class="sha-chip">SHA256: <span id="prompt-sha">?</span></div>
+  </div>
+  <div class="prompt-box" id="prompt-box">(loading)</div>
+</div>
+
+<!-- RECENT OUTCOMES -->
+<div class="section">
+  <div class="section-title">Recent Outcomes</div>
+  <div style="overflow-x:auto;">
+    <table class="outcomes-table">
+      <thead>
+        <tr>
+          <th>RESULT</th>
+          <th>DOMAIN</th>
+          <th>SCORE</th>
+          <th>APPROACH</th>
+          <th>FAILURE</th>
+          <th>TIME</th>
+        </tr>
+      </thead>
+      <tbody id="outcomes-body">
+        <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px;">loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div id="footer">
+  <span>Last update: <span id="last-update">—</span></span>
+  <span>Redis: <span id="redis-state">—</span></span>
+  <span>Poll interval: 4s</span>
+</div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────
-const prevScores = {};
-let lastTs = 0;
+const POLL_MS = 4000;
+let lastOk = 0;
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-function ago(ts) {
-  const s = Math.max(0, Math.floor(Date.now()/1000) - ts);
-  if (s < 60)  return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s/60)}m ago`;
-  return `${Math.floor(s/3600)}h ago`;
+function fmt(n) { return n === undefined || n === null ? '—' : n.toLocaleString(); }
+function pct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
+
+function depthClass(v) {
+  if (v === 0) return 'zero';
+  if (v > 2000) return 'critical';
+  if (v > 500) return 'high';
+  return '';
 }
 
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function tsAgo(ts) {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  return Math.floor(diff / 3600) + 'h ago';
 }
 
-// ── Render functions ───────────────────────────────────────────────────────
-function renderDaemons(daemons) {
-  const names = ['assessor','formulator','solver','verifier','memorizer'];
-  let html = '';
-  let runCount = 0;
-  for (const name of names) {
-    const status = (daemons && daemons[name]) || 'stopped';
-    const isRunning = status === 'running';
-    if (isRunning) runCount++;
-    html += `
-      <div class="daemon-row">
-        <div class="daemon-dot ${isRunning ? 'running' : 'stopped'}"></div>
-        <span class="daemon-name">${name}</span>
-        <span class="daemon-status">${isRunning ? '▶' : '■'}</span>
-      </div>`;
-  }
-  document.getElementById('daemonsContainer').innerHTML = html;
-  document.getElementById('daemonsRunning').textContent = `${runCount}/${names.length}`;
-  document.getElementById('daemonsRunning').className = `v ${runCount === names.length ? 'ok' : ''}`;
+function approachClass(a) {
+  if (!a) return 'approach-prompt';
+  if (a.includes('lora')) return 'approach-lora';
+  if (a.includes('weight')) return 'approach-weight';
+  return 'approach-prompt';
 }
 
-function renderPipeline(queues) {
-  const stages = ['ASSESS','FORMULATE','SOLVE','VERIFY','MEMORIZE'];
-  const container = document.getElementById('pipelineFlow');
-  let html = '';
-  let total = 0;
-  stages.forEach((s, i) => {
-    const n = (queues && queues[s] != null) ? queues[s] : 0;
-    total += n;
-    const hot = n > 0;
-    const active = n > 0;
-    html += `
-      <div class="pipeline-stage">
-        <div class="stage-box ${active ? 'active' : ''}">
-          <div class="stage-name">${s}</div>
-          <div class="stage-count ${hot ? 'hot' : ''}">${n}</div>
-        </div>
-      </div>`;
-    if (i < stages.length - 1) {
-      html += `<div class="pipeline-arrow">→</div>`;
+function render(d) {
+  // Header
+  document.getElementById('h-uptime').textContent = d.uptime || '—';
+  document.getElementById('h-cycle').textContent = d.cycle ?? '—';
+  document.getElementById('h-pass').textContent = pct(d.pass_rate);
+  const vllm = d.vllm || {};
+  document.getElementById('h-vllm').textContent = vllm.ok ? '●' + (vllm.model || '?').split('/').pop() : '✗ offline';
+  document.getElementById('h-vllm').style.color = vllm.ok ? 'var(--green)' : 'var(--red)';
+
+  // Queues
+  const qs = d.queues || {};
+  for (const [key, val] of Object.entries(qs)) {
+    const el = document.getElementById('q-' + key);
+    if (el) {
+      el.textContent = fmt(val);
+      el.className = 'q-depth ' + depthClass(val);
     }
-  });
-  container.innerHTML = html;
-}
-
-function renderThinking(problem) {
-  if (!problem) {
-    document.getElementById('thinkingDomain').textContent = '—';
-    document.getElementById('thinkingDesc').innerHTML = '<em>Warming up…</em>';
-    document.getElementById('priorityFill').style.width = '0%';
-    document.getElementById('priorityVal').textContent = '—';
-    return;
   }
-  document.getElementById('thinkingDomain').textContent = `Domain: ${esc(problem.domain)}`;
-  const desc = problem.description || '(no description)';
-  document.getElementById('thinkingDesc').textContent = `"${desc}"`;
-  const pct = Math.round((problem.priority || 0) * 100);
-  document.getElementById('priorityFill').style.width = `${pct}%`;
-  document.getElementById('priorityVal').textContent = (problem.priority || 0).toFixed(2);
-}
 
-function renderScores(scores) {
-  const container = document.getElementById('scoresContainer');
-  if (!scores || Object.keys(scores).length === 0) {
-    container.innerHTML = '<div class="warmup">Waiting for metrics…</div>';
-    return;
-  }
-  const sorted = Object.entries(scores).sort((a,b) => b[1]-a[1]);
-  let html = '';
-  for (const [domain, score] of sorted) {
-    const pct = Math.round(score * 100);
-    const prev = prevScores[domain];
-    let trendClass = '';
-    let trendSym = '→';
-    if (prev !== undefined) {
-      if (score > prev + 0.005)  { trendClass = 'up';   trendSym = '↑'; }
-      else if (score < prev - 0.005) { trendClass = 'down'; trendSym = '↓'; }
+  // Daemons
+  const grid = document.getElementById('daemon-grid');
+  const daemons = d.daemons || {};
+  const activity = d.activity || {};
+  const tput = d.throughput || {};
+  grid.innerHTML = Object.entries(daemons).map(([name, status]) => {
+    const running = status === 'running';
+    const rate = tput[name];
+    const rateStr = rate > 0 ? rate + '/min' : '';
+    return `<div class="daemon-card">
+      <div class="daemon-dot ${running ? 'running' : 'stopped'}"></div>
+      <div class="daemon-info">
+        <div class="daemon-name">${name}</div>
+        <div class="daemon-detail">last: ${activity[name] || '?'}</div>
+      </div>
+      <div class="tput">${rateStr}</div>
+    </div>`;
+  }).join('');
+
+  // Scores
+  const scores = d.scores || {};
+  const sgrid = document.getElementById('scores-grid');
+  const sorted = Object.entries(scores).sort((a, b) => a[1].score - b[1].score);
+  sgrid.innerHTML = sorted.map(([domain, s]) => {
+    const pctVal = (s.score * 100).toFixed(0);
+    const barClass = s.score >= 0.9 ? 'good' : s.score >= 0.75 ? 'mid' : 'bad';
+    const delta = s.delta;
+    const deltaStr = delta > 0 ? '+' + (delta * 100).toFixed(0) + 'pp' :
+                     delta < 0 ? (delta * 100).toFixed(0) + 'pp' : '';
+    const deltaClass = delta > 0 ? 'delta-pos' : delta < 0 ? 'delta-neg' : 'delta-zero';
+    return `<div class="score-row">
+      <div class="score-domain">${domain}</div>
+      <div class="score-bar-wrap"><div class="score-bar ${barClass}" style="width:${pctVal}%"></div></div>
+      <div class="score-pct">${pctVal}%</div>
+      <div class="score-delta ${deltaClass}">${deltaStr}</div>
+    </div>`;
+  }).join('');
+
+  // Summary
+  document.getElementById('stat-pass').textContent = fmt(d.total_pass);
+  document.getElementById('stat-fail').textContent = fmt(d.total_fail);
+  document.getElementById('stat-rate').textContent = pct(d.pass_rate);
+
+  // Approach dist
+  const chips = document.getElementById('approach-chips');
+  const ap = d.approach || {};
+  chips.innerHTML = Object.entries(ap)
+    .sort((a, b) => b[1] - a[1])
+    .map(([a, n]) => {
+      const cls = a.includes('lora') ? 'lora' : a.includes('weight') ? 'weight' : 'prompt';
+      return `<div class="chip ${cls}">${a}: ${n}</div>`;
+    }).join('') || '<span style="color:var(--muted)">—</span>';
+
+  // Training
+  const tb = document.getElementById('train-badge');
+  const tp = d.training_progress || {};
+  const trainProg = document.getElementById('train-progress');
+  const trainBar  = document.getElementById('train-bar');
+  const trainStep = document.getElementById('train-step');
+  const trainPairs = document.getElementById('train-pairs');
+  const trainDomain = document.getElementById('train-domain');
+  const trainJob  = document.getElementById('train-job');
+
+  if (d.training_active) {
+    tb.textContent = '\u25b6 TRAINING';
+    if (Object.keys(tp).length && trainProg) {
+      trainProg.style.display = '';
+      const stepLabel = {
+        generating_pairs: '\u2699 Generating pairs',
+        stopping_vllm:    '\u23f9 Stopping vLLM',
+        qlora_training:   '\ud83c\udfd4 QLoRA training',
+        restarting_vllm:  '\u25b6 Restarting vLLM',
+        loading_adapter:  '\ud83d\udce6 Loading adapter',
+      };
+      if (trainStep) trainStep.textContent = stepLabel[tp.step] || tp.step || '-';
+      if (tp.pairs_total && trainPairs) {
+        const pct = tp.pct || Math.round(100 * (tp.pairs_done || 0) / tp.pairs_total);
+        if (trainBar) trainBar.style.width = pct + '%';
+        trainPairs.textContent = (tp.pairs_done || 0) + ' / ' + tp.pairs_total + ' pairs';
+      } else if (trainPairs) {
+        trainPairs.textContent = '';
+      }
+      if (trainDomain) trainDomain.textContent = tp.domain ? tp.domain : '';
+      if (trainJob) trainJob.textContent = tp.job_id ? '#' + tp.job_id.slice(0, 8) : '';
+    } else if (trainProg) {
+      trainProg.style.display = 'none';
     }
-    prevScores[domain] = score;
-    html += `
-      <div class="score-row">
-        <div class="score-name">${esc(domain)}</div>
-        <div class="score-bar-wrap">
-          <div class="score-bar-fill" style="width:${pct}%"></div>
-        </div>
-        <div class="score-val">${score.toFixed(2)}</div>
-        <div class="score-trend ${trendClass}">${trendSym}</div>
-      </div>`;
+    tb.classList.add('active');
+  } else {
+    tb.textContent = 'IDLE';
+    tb.classList.remove('active');
+    if (typeof trainProg !== 'undefined' && trainProg) trainProg.style.display = 'none';
   }
-  container.innerHTML = html;
-}
-
-function renderSolved(items, total) {
-  const list = document.getElementById('solvedList');
-  document.getElementById('totalSolved').textContent = total != null ? total : '—';
-
-  if (!items || items.length === 0) {
-    list.innerHTML = '<li><div class="warmup">Warming up…</div></li>';
-    return;
+  const al = document.getElementById('adapter-list');
+  if (d.adapters && d.adapters.length) {
+    al.innerHTML = d.adapters.map(a =>
+      `<div class="adapter-chip">${a.name || a.adapter_name || JSON.stringify(a)}</div>`
+    ).join('');
+  } else {
+    al.innerHTML = '<span style="color:var(--muted);font-size:11px;">no active adapters</span>';
   }
 
-  const now = Math.floor(Date.now()/1000);
-  let html = '';
-  for (const item of items) {
-    html += `
-      <li class="solved-item">
-        <span class="solved-domain">${esc(item.domain)}</span>
-        <span class="solved-score">(${(item.score||0).toFixed(2)})</span>
-        <span class="solved-time">${ago(item.timestamp)}</span>
-      </li>`;
+  // Prompt
+  document.getElementById('prompt-sha').textContent = d.prompt_sha || '?';
+  document.getElementById('prompt-box').textContent = d.prompt_preview || '(empty)';
+
+  // Outcomes
+  const tbody = document.getElementById('outcomes-body');
+  const rows = (d.recent || []);
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:16px;">no outcomes yet</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map(r => {
+      const ok = r.outcome === 'pass';
+      return `<tr>
+        <td class="${ok ? 'outcome-pass' : 'outcome-fail'}">${ok ? '✓' : '✗'}</td>
+        <td>${r.domain}</td>
+        <td>${r.score != null ? (r.score * 100).toFixed(0) + '%' : '—'}</td>
+        <td class="${approachClass(r.approach)}">${r.approach || '?'}</td>
+        <td class="failure-text" title="${(r.failure || '').replace(/"/g,"'")}">
+          ${r.failure ? r.failure.substring(0, 80) : '<span style="color:var(--dim)">—</span>'}
+        </td>
+        <td class="ts-cell">${tsAgo(r.ts)}</td>
+      </tr>`;
+    }).join('');
   }
-  list.innerHTML = html;
+
+  // Footer
+  document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+  document.getElementById('redis-state').textContent = d.redis_ok ? '✓' : '✗';
+  document.getElementById('redis-state').style.color = d.redis_ok ? 'var(--green)' : 'var(--red)';
+
+  // Live badge
+  lastOk = Date.now();
+  const badge = document.getElementById('live-badge');
+  badge.classList.remove('stale');
+  document.getElementById('live-text').textContent = 'LIVE';
 }
 
-// ── Main update ────────────────────────────────────────────────────────────
-function applyUpdate(data) {
-  // header
-  document.getElementById('uptimeVal').textContent = data.uptime || '—';
-  const redisEl = document.getElementById('redisStatus');
-  redisEl.textContent = data.redis_available ? 'connected' : 'offline';
-  redisEl.className   = `v ${data.redis_available ? 'ok' : 'err'}`;
-  document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-
-  renderDaemons(data.daemons);
-  renderPipeline(data.queues);
-  renderThinking(data.current_problem);
-  renderScores(data.capability_scores);
-  renderSolved(data.recent_solved, data.total_solved);
-
-  // live badge
-  document.getElementById('liveDot').style.background = 'var(--green)';
-  document.getElementById('liveLabel').textContent = 'LIVE';
+function markStale() {
+  const badge = document.getElementById('live-badge');
+  badge.classList.add('stale');
+  document.getElementById('live-text').textContent = 'STALE';
 }
 
-// ── SSE ────────────────────────────────────────────────────────────────────
-function connect() {
-  const es = new EventSource('/events');
-
-  es.onopen = () => {
-    document.getElementById('liveLabel').textContent = 'LIVE';
-    document.getElementById('liveDot').style.background = 'var(--green)';
-  };
-
-  es.onmessage = (evt) => {
-    try {
-      const data = JSON.parse(evt.data);
-      if (data.type === 'status_update') applyUpdate(data);
-    } catch(e) { console.warn('Parse error', e); }
-  };
-
-  es.onerror = () => {
-    document.getElementById('liveLabel').textContent = 'RECONNECTING';
-    document.getElementById('liveDot').style.background = 'var(--yellow)';
-    es.close();
-    setTimeout(connect, 3000);
-  };
+async function poll() {
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    render(data);
+  } catch (e) {
+    console.warn('poll failed:', e);
+    if (Date.now() - lastOk > 10000) markStale();
+  }
 }
 
-// ── Also poll /api/status once immediately for instant display ─────────────
-fetch('/api/status')
-  .then(r => r.ok ? r.json() : null)
-  .then(d => { if (d) applyUpdate(d); })
-  .catch(() => {});
-
-connect();
+// Initial load + recurring poll
+poll();
+setInterval(poll, POLL_MS);
 </script>
 </body>
 </html>

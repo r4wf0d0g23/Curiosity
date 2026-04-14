@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 # Default server endpoint
 DEFAULT_SERVER_URL = "http://localhost:8001/v1/chat/completions"
-DEFAULT_MODEL = "curiosity-server"
-DEFAULT_TIMEOUT = 60  # seconds per request
+DEFAULT_MODEL = "nemotron3-super"
+DEFAULT_TIMEOUT = 600  # 10 min — tier-1 needs room, tier-3 will need much more  # seconds per request
 
 
 class ProbeRunner:

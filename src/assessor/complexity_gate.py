@@ -81,7 +81,7 @@ class ComplexityGate:
             resp = requests.post(
                 self.server_url,
                 json={
-                    "model": "default",
+                    "model": "nemotron3-super",
                     "messages": [
                         {
                             "role": "system",

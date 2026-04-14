@@ -54,7 +54,7 @@ CODE_DOMAINS: set[str] = {"code", "coding", "programming", "software"}
 # vLLM endpoint for llm_judge confidence estimation
 VLLM_HOST = os.environ.get("VLLM_HOST", "localhost")
 VLLM_PORT = int(os.environ.get("VLLM_PORT", 8001))
-VLLM_MODEL = os.environ.get("VLLM_MODEL", "curiosity-server")
+VLLM_MODEL = os.environ.get("VLLM_MODEL", "nemotron3-super")
 
 # Minimum confidence for an llm_judge to be considered automatable
 LLM_JUDGE_MIN_CONFIDENCE = 0.5

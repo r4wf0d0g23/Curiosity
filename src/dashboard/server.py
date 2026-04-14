@@ -1,124 +1,224 @@
 """
-Curiosity Dashboard — FastAPI + SSE backend.
-Serves real-time system state for the Curiosity autonomous self-improvement system.
+Curiosity Dashboard — Backend v2
+Clean rewrite: correct queue lag metrics, in-process throughput tracking,
+polling-friendly /api/status endpoint.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
+import requests as _requests
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # ---------------------------------------------------------------------------
-# Paths — all relative to $HOME/curiosity on the DGX host
+# Paths
 # ---------------------------------------------------------------------------
-HOME = Path.home()
+HOME          = Path.home()
 CURIOSITY_DIR = HOME / "curiosity"
-LOGS_DIR = CURIOSITY_DIR / "logs"
-METRICS_FILE = CURIOSITY_DIR / "metrics" / "capability_scores.jsonl"
-OUTCOMES_PASS_DIR = CURIOSITY_DIR / "memory" / "outcomes" / "pass"
+LOGS_DIR      = CURIOSITY_DIR / "logs"
+METRICS_FILE  = CURIOSITY_DIR / "metrics" / "capability_scores.jsonl"
+OUTCOMES_DIR  = CURIOSITY_DIR / "memory" / "outcomes"
+PROMPT_FILE   = HOME / "curiosity_code" / "config" / "system_prompt.txt"
 
-DAEMONS = ["assessor", "formulator", "solver", "verifier", "memorizer"]
-# VERIFY_QUEUE does not accumulate — Verifier reads SOLVE_QUEUE and writes
-# directly to MEMORIZE_QUEUE.  VERIFY is shown as a throughput counter instead
-# (see VERIFY_COUNT Redis key incremented by the Verifier per processed item).
-QUEUES = ["ASSESS_QUEUE", "FORMULATE_QUEUE", "SOLVE_QUEUE", "MEMORIZE_QUEUE"]
-QUEUE_SHORT = ["ASSESS", "FORMULATE", "SOLVE", "MEMORIZE"]
+DAEMONS = ["assessor", "formulator", "solver", "verifier", "memorizer", "trainer"]
+
+# Queue → consumer group that consumes it (for lag calculation)
+# ASSESS_QUEUE and MEMORIZE_QUEUE have no consumer group → use XLEN
+QUEUE_CONFIG = {
+    "ASSESS_QUEUE":    {"short": "ASSESS",    "group": None},
+    "FORMULATE_QUEUE": {"short": "FORMULATE", "group": "solvers"},
+    "SOLVE_QUEUE":     {"short": "SOLVE",     "group": "verifiers"},
+    "MEMORIZE_QUEUE":  {"short": "MEMORIZE",  "group": None},
+    "TRAIN_QUEUE":     {"short": "TRAIN",     "group": "trainers"},
+}
 
 # ---------------------------------------------------------------------------
-# Optional Redis
+# Redis
 # ---------------------------------------------------------------------------
 try:
-    import redis as _redis  # type: ignore
-
-    _rc = _redis.Redis(host="localhost", port=6379, decode_responses=True, socket_timeout=1)
+    import redis as _redis
+    _rc = _redis.Redis(host="localhost", port=6379, decode_responses=True, socket_timeout=2)
     _rc.ping()
-    REDIS_AVAILABLE = True
+    REDIS_OK = True
 except Exception:
-    _rc = None  # type: ignore
-    REDIS_AVAILABLE = False
+    _rc = None
+    REDIS_OK = False
+
+# ---------------------------------------------------------------------------
+# In-process throughput state
+# ---------------------------------------------------------------------------
+_throughput_state: dict = {}   # {"ts": float, "verify": int, "train": int, "queues": dict}
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
-app = FastAPI(title="Curiosity Dashboard")
-
-_STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-_START_TIME = time.time()
+app = FastAPI(title="Curiosity Dashboard v2")
+_STATIC = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
+_START = time.time()
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _uptime_str() -> str:
-    secs = int(time.time() - _START_TIME)
-    h, rem = divmod(secs, 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h}h {m}m"
-    return f"{m}m {s}s"
+def _uptime() -> str:
+    s = int(time.time() - _START)
+    h, r = divmod(s, 3600)
+    m, s = divmod(r, 60)
+    return f"{h}h {m}m" if h else f"{m}m {s}s"
 
 
-def _daemon_status(name: str) -> str:
-    pid_file = CURIOSITY_DIR / f"{name}.pid"
-    if not pid_file.exists():
-        return "stopped"
+def _daemon_running(name: str) -> bool:
     try:
-        pid = int(pid_file.read_text().strip())
-        os.kill(pid, 0)
-        return "running"
-    except (ValueError, ProcessLookupError, PermissionError):
-        return "stopped"
-
-
-def _queue_depths() -> dict:
-    depths = {}
-    for short, full in zip(QUEUE_SHORT, QUEUES):
-        if REDIS_AVAILABLE and _rc is not None:
-            try:
-                info = _rc.xinfo_stream(full)
-                depths[short] = int(info.get("length", 0))
-            except Exception:
-                depths[short] = 0
-        else:
-            depths[short] = 0
-    # VERIFY is a cumulative throughput counter, not a queue length
-    try:
-        depths["VERIFY"] = int(_rc.get("VERIFY_COUNT") or 0)
+        r = subprocess.run(
+            ["pgrep", "-f", f"src.{name}.{name}"],
+            capture_output=True, text=True, timeout=2
+        )
+        return r.returncode == 0 and bool(r.stdout.strip())
     except Exception:
-        depths["VERIFY"] = 0
+        return False
+
+
+def _daemon_last_active(name: str) -> str:
+    log = LOGS_DIR / f"{name}.log"
+    if not log.exists():
+        return "never"
+    try:
+        # Read tail 4KB — fast
+        size = log.stat().st_size
+        with log.open("rb") as f:
+            f.seek(max(0, size - 4096))
+            chunk = f.read().decode("utf-8", errors="replace")
+        for line in reversed(chunk.splitlines()):
+            line = line.strip()
+            if len(line) < 23:
+                continue
+            try:
+                dt = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S,%f")
+                return dt.strftime("%H:%M:%S")
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return "?"
+
+
+def _queue_depths() -> dict[str, int]:
+    depths: dict[str, int] = {}
+    if not REDIS_OK or _rc is None:
+        return {cfg["short"]: 0 for cfg in QUEUE_CONFIG.values()}
+
+    for stream, cfg in QUEUE_CONFIG.items():
+        short = cfg["short"]
+        group = cfg["group"]
+        try:
+            if group:
+                # Use consumer group lag — messages not yet delivered to any consumer
+                groups = _rc.xinfo_groups(stream)
+                lag = next(
+                    (int(g.get("lag") or 0) for g in groups if g["name"] == group),
+                    0
+                )
+                depths[short] = lag
+            else:
+                # No consumer group — use raw stream length
+                depths[short] = _rc.xlen(stream)
+        except Exception:
+            depths[short] = 0
+
     return depths
 
 
-def _current_problem() -> Optional[dict]:
-    """Peek at the latest message in FORMULATE_QUEUE."""
-    if not (REDIS_AVAILABLE and _rc is not None):
-        return None
+def _throughput() -> dict[str, int]:
+    """
+    Items/min per daemon, computed from deltas of Redis counters and queue lags.
+    Called once per status build; updates internal state.
+    """
+    global _throughput_state
+    now = time.time()
+    result = {d: 0 for d in DAEMONS}
+
+    if not REDIS_OK or _rc is None:
+        return result
+
+    # Counters we can read directly
     try:
-        msgs = _rc.xrevrange("FORMULATE_QUEUE", count=1)
-        if not msgs:
-            return None
-        _msg_id, fields = msgs[0]
-        return {
-            "domain": fields.get("domain", "unknown"),
-            "description": fields.get("description", fields.get("problem", "")),
-            "priority": float(fields.get("priority", 0.5)),
-        }
+        verify_now = int(_rc.get("VERIFY_COUNT") or 0)
     except Exception:
-        return None
+        verify_now = 0
+    try:
+        train_now = int(_rc.get("TRAIN_COUNT") or 0)
+    except Exception:
+        train_now = 0
+
+    # Queue lag snapshots for solver/formulator throughput estimation
+    queue_now: dict[str, int] = {}
+    for stream, cfg in QUEUE_CONFIG.items():
+        short = cfg["short"]
+        group = cfg["group"]
+        try:
+            if group:
+                groups = _rc.xinfo_groups(stream)
+                lag = next(
+                    (int(g.get("lag") or 0) for g in groups if g["name"] == group),
+                    0
+                )
+                queue_now[short] = lag
+            else:
+                queue_now[short] = _rc.xlen(stream)
+        except Exception:
+            queue_now[short] = 0
+
+    prev = _throughput_state
+    if prev.get("ts"):
+        elapsed = max(5, now - prev["ts"])   # avoid division by tiny number
+        per_min = 60 / elapsed
+
+        # Verifier: delta of VERIFY_COUNT
+        v_delta = max(0, verify_now - prev.get("verify", verify_now))
+        result["verifier"] = round(v_delta * per_min)
+
+        # Trainer: delta of TRAIN_COUNT
+        t_delta = max(0, train_now - prev.get("train", train_now))
+        result["trainer"] = round(t_delta * per_min)
+
+        # Solver: consumed from FORMULATE_QUEUE lag decrease
+        fm_prev = prev.get("queues", {}).get("FORMULATE", queue_now.get("FORMULATE", 0))
+        fm_delta = max(0, fm_prev - queue_now.get("FORMULATE", fm_prev))
+        result["solver"] = round(fm_delta * per_min)
+
+        # Formulator: consumed from ASSESS_QUEUE lag decrease
+        as_prev = prev.get("queues", {}).get("ASSESS", queue_now.get("ASSESS", 0))
+        as_delta = max(0, as_prev - queue_now.get("ASSESS", as_prev))
+        result["formulator"] = round(as_delta * per_min)
+
+        # Memorizer: from MEMORIZE_QUEUE decrease
+        mem_prev = prev.get("queues", {}).get("MEMORIZE", queue_now.get("MEMORIZE", 0))
+        mem_delta = max(0, mem_prev - queue_now.get("MEMORIZE", mem_prev))
+        result["memorizer"] = round(mem_delta * per_min)
+
+    # Update state
+    _throughput_state = {
+        "ts": now,
+        "verify": verify_now,
+        "train": train_now,
+        "queues": queue_now,
+    }
+    return result
 
 
 def _capability_scores() -> dict:
-    """Return latest score per domain from capability_scores.jsonl."""
     scores: dict = {}
     if not METRICS_FILE.exists():
         return scores
@@ -129,61 +229,196 @@ def _capability_scores() -> dict:
             if not line:
                 continue
             try:
-                entry = json.loads(line)
-                domain = entry.get("domain") or entry.get("name")
-                score = entry.get("score") or entry.get("capability_score")
+                e = json.loads(line)
+                domain = e.get("domain") or e.get("name")
+                score = e.get("pass_rate") or e.get("score") or e.get("capability_score")
                 if domain and score is not None and domain not in scores:
-                    scores[domain] = round(float(score), 4)
-            except json.JSONDecodeError:
+                    scores[domain] = {
+                        "score": round(float(score), 4),
+                        "n": int(e.get("sample_size") or 0),
+                        "delta": round(float(e.get("delta") or 0), 4),
+                    }
+            except Exception:
                 continue
-            if len(scores) >= 10:
+            if len(scores) >= 15:
                 break
     except Exception:
         pass
     return scores
 
 
-def _recent_solved(limit: int = 10) -> list:
-    """Return recent solved problems from the pass outcomes directory."""
+def _recent_outcomes(limit: int = 20) -> list:
     items = []
-    if not OUTCOMES_PASS_DIR.exists():
-        return items
+    files = []
+    for sub in ("pass", "fail"):
+        d = OUTCOMES_DIR / sub
+        if d.exists():
+            files.extend(d.glob("*.json"))
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for f in files[:limit]:
+        try:
+            data = json.loads(f.read_text())
+            prob  = data.get("problem", {})
+            res   = data.get("result", {})
+            sol   = data.get("solution", {})
+            items.append({
+                "domain":   prob.get("domain") or data.get("domain", "?"),
+                "outcome":  res.get("outcome") or ("pass" if "pass" in f.parent.name else "fail"),
+                "score":    round(float(res.get("criterion_score") or data.get("score") or 0), 3),
+                "approach": sol.get("approach") or data.get("approach") or "?",
+                "failure":  (res.get("failure_mode") or "")[:120],
+                "ts":       int(f.stat().st_mtime),
+            })
+        except Exception:
+            continue
+    return items
+
+
+def _approach_dist() -> dict:
+    counts: dict = {}
+    files = []
+    for sub in ("pass", "fail"):
+        d = OUTCOMES_DIR / sub
+        if d.exists():
+            files.extend(d.glob("*.json"))
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for f in files[:200]:
+        try:
+            data = json.loads(f.read_text())
+            a = data.get("solution", {}).get("approach") or "?"
+            counts[a] = counts.get(a, 0) + 1
+        except Exception:
+            continue
+    return counts
+
+
+def _totals() -> tuple[int, int]:
+    p = len(list((OUTCOMES_DIR / "pass").glob("*.json"))) if (OUTCOMES_DIR / "pass").exists() else 0
+    f = len(list((OUTCOMES_DIR / "fail").glob("*.json"))) if (OUTCOMES_DIR / "fail").exists() else 0
+    return p, f
+
+
+def _vllm() -> dict:
     try:
-        files = sorted(OUTCOMES_PASS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for f in files[:limit]:
+        r = _requests.get("http://localhost:8001/v1/models", timeout=2)
+        d = r.json()
+        model = d["data"][0]["id"] if d.get("data") else "?"
+        return {"ok": True, "model": model}
+    except Exception:
+        return {"ok": False, "model": None}
+
+
+def _prompt_sha() -> str:
+    try:
+        return hashlib.sha256(PROMPT_FILE.read_text().encode()).hexdigest()[:8]
+    except Exception:
+        return "?"
+
+
+def _prompt_preview() -> str:
+    try:
+        t = PROMPT_FILE.read_text().strip()
+        return t[:200] if t else "(empty)"
+    except Exception:
+        return "?"
+
+
+def _assessor_cycle() -> int:
+    if not METRICS_FILE.exists():
+        return 0
+    best = 0
+    try:
+        for line in METRICS_FILE.read_text().splitlines():
             try:
-                data = json.loads(f.read_text())
-                items.append({
-                    "domain": data.get("domain", "unknown"),
-                    "score": round(float(data.get("score", data.get("capability_score", 0))), 4),
-                    "timestamp": int(f.stat().st_mtime),
-                    "description": data.get("description", data.get("problem", ""))[:120],
-                })
+                e = json.loads(line.strip())
+                c = int(e.get("cycle") or 0)
+                if c > best:
+                    best = c
             except Exception:
                 continue
     except Exception:
         pass
-    return items
+    return best
 
 
-def _build_state() -> dict:
-    daemons = {d: _daemon_status(d) for d in DAEMONS}
-    queues = _queue_depths()
-    scores = _capability_scores()
-    recent = _recent_solved(10)
-    problem = _current_problem()
+def _training_active() -> bool:
+    if not REDIS_OK or _rc is None:
+        return False
+    try:
+        return bool(_rc.exists("CURIOSITY_TRAINING_LOCK"))
+    except Exception:
+        return False
+
+
+def _training_progress() -> dict:
+    """Read live training progress from Redis hash."""
+    if not REDIS_OK or _rc is None:
+        return {}
+    try:
+        h = _rc.hgetall("CURIOSITY_TRAINING_PROGRESS")
+        if not h:
+            return {}
+        out = {}
+        for k, v in h.items():
+            key = k.decode() if isinstance(k, bytes) else k
+            val = v.decode() if isinstance(v, bytes) else v
+            # cast numeric fields
+            if key in ("pairs_done", "pairs_total", "batch", "errors", "ts"):
+                try: val = int(val)
+                except ValueError: pass
+            out[key] = val
+        if "pairs_done" in out and "pairs_total" in out and out["pairs_total"]:
+            out["pct"] = round(100 * out["pairs_done"] / out["pairs_total"])
+        return out
+    except Exception:
+        return {}
+
+
+def _active_adapters() -> list:
+    if not REDIS_OK or _rc is None:
+        return []
+    try:
+        h = _rc.hgetall("CURIOSITY_ACTIVE_ADAPTERS")
+        out = []
+        for name, info_str in h.items():
+            try:
+                out.append(json.loads(info_str))
+            except Exception:
+                out.append({"name": name})
+        return out
+    except Exception:
+        return []
+
+
+def _build_status() -> dict:
+    queues   = _queue_depths()
+    tput     = _throughput()
+    tp, tf   = _totals()
+    total    = tp + tf
+    daemons  = {d: "running" if _daemon_running(d) else "stopped" for d in DAEMONS}
+    activity = {d: _daemon_last_active(d) for d in DAEMONS}
 
     return {
-        "type": "status_update",
-        "timestamp": int(time.time()),
-        "uptime": _uptime_str(),
-        "queues": queues,
-        "daemons": daemons,
-        "current_problem": problem,
-        "recent_solved": recent,
-        "capability_scores": scores,
-        "total_solved": len(list(OUTCOMES_PASS_DIR.glob("*.json"))) if OUTCOMES_PASS_DIR.exists() else 0,
-        "redis_available": REDIS_AVAILABLE,
+        "ts":        int(time.time()),
+        "uptime":    _uptime(),
+        "cycle":     _assessor_cycle(),
+        "queues":    queues,
+        "daemons":   daemons,
+        "activity":  activity,
+        "throughput": tput,
+        "scores":    _capability_scores(),
+        "recent":    _recent_outcomes(20),
+        "approach":  _approach_dist(),
+        "total_pass": tp,
+        "total_fail": tf,
+        "pass_rate": round(tp / total, 3) if total else 0,
+        "vllm":      _vllm(),
+        "prompt_sha":     _prompt_sha(),
+        "prompt_preview": _prompt_preview(),
+        "training_active": _training_active(),
+        "training_progress": _training_progress(),
+        "adapters":  _active_adapters(),
+        "redis_ok":  REDIS_OK,
     }
 
 
@@ -193,63 +428,44 @@ def _build_state() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    index = _STATIC_DIR / "index.html"
-    if index.exists():
-        return HTMLResponse(content=index.read_text())
-    return HTMLResponse(content="<h1>Curiosity Dashboard</h1><p>index.html not found.</p>")
+    f = _STATIC / "index.html"
+    return HTMLResponse(content=f.read_text() if f.exists() else "<h1>index.html missing</h1>")
 
 
 @app.get("/api/status")
 async def api_status():
-    return JSONResponse(_build_state())
+    return JSONResponse(_build_status())
 
 
-@app.get("/api/metrics")
-async def api_metrics():
-    """Return full capability_scores.jsonl as list."""
-    entries = []
-    if METRICS_FILE.exists():
-        for line in METRICS_FILE.read_text().splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return JSONResponse({"metrics": entries})
-
-
-@app.get("/api/memory")
-async def api_memory():
-    return JSONResponse({"recent_solved": _recent_solved(20)})
+@app.get("/api/prompt")
+async def api_prompt():
+    return JSONResponse({"sha": _prompt_sha(), "content": _prompt_preview()})
 
 
 @app.get("/api/queues")
 async def api_queues():
-    return JSONResponse({"queues": _queue_depths(), "redis_available": REDIS_AVAILABLE})
+    return JSONResponse({"queues": _queue_depths(), "redis": REDIS_OK})
 
 
-async def _event_generator() -> AsyncGenerator[str, None]:
-    """Stream JSON status events every 2 seconds."""
+@app.get("/api/recent")
+async def api_recent():
+    return JSONResponse({"recent": _recent_outcomes(30)})
+
+
+async def _sse_gen():
     while True:
         try:
-            state = _build_state()
-            payload = json.dumps(state)
+            payload = json.dumps(_build_status())
             yield f"data: {payload}\n\n"
         except Exception as exc:
-            error_payload = json.dumps({"type": "error", "message": str(exc)})
-            yield f"data: {error_payload}\n\n"
-        await asyncio.sleep(2)
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        await asyncio.sleep(3)
 
 
 @app.get("/events")
 async def events():
     return StreamingResponse(
-        _event_generator(),
+        _sse_gen(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

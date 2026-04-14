@@ -64,7 +64,7 @@ REDIS_PORT: int = int(os.environ.get("REDIS_PORT", "6379"))
 SERVER_URL: str = os.environ.get(
     "SERVER_URL", "http://localhost:8001/v1/chat/completions"
 )
-SERVER_MODEL: str = os.environ.get("SERVER_MODEL", "curiosity-server")
+SERVER_MODEL: str = os.environ.get("SERVER_MODEL", "nemotron3-super")
 GAP_SCAN_INTERVAL: int = int(os.environ.get("GAP_SCAN_INTERVAL", "300"))
 FAILURE_THRESHOLD: float = float(os.environ.get("FAILURE_THRESHOLD", "0.10"))
 CURIOSITY_NOVEL_COUNT: int = int(os.environ.get("CURIOSITY_NOVEL_COUNT", "3"))
@@ -225,15 +225,19 @@ def run_gap_mode(
                 f"Domain '{domain}' has {failure_rate*100:.1f}% failure rate "
                 f"({len(failures)}/{total} benchmarks failing)."
             )
-            _emit_packet(
-                r,
-                domain=domain,
-                description=description,
-                failure_rate=failure_rate,
-                frequency=len(failures),
-                novelty_score=0.0,
-                source="gap",
-            )
+            depth = r.xlen(ASSESS_QUEUE)
+            if depth > 300:
+                logger.info("[assessor] ASSESS_QUEUE backpressure (%d items) — skipping emit for domain=%s", depth, domain)
+            else:
+                _emit_packet(
+                    r,
+                    domain=domain,
+                    description=description,
+                    failure_rate=failure_rate,
+                    frequency=len(failures),
+                    novelty_score=0.0,
+                    source="gap",
+                )
 
         # ── Regression check ──────────────────────────────────────────────────
         if domain in baseline:
@@ -246,15 +250,19 @@ def run_gap_mode(
                     f"(Δ = {drop*100:.1f}%)."
                 )
                 logger.warning("[regression] %s", description)
-                _emit_packet(
-                    r,
-                    domain=domain,
-                    description=description,
-                    failure_rate=failure_rate,
-                    frequency=len(failures),
-                    novelty_score=0.0,
-                    source="gap",
-                )
+                depth = r.xlen(ASSESS_QUEUE)
+                if depth > 300:
+                    logger.info("[assessor] ASSESS_QUEUE backpressure (%d items) — skipping emit for domain=%s", depth, domain)
+                else:
+                    _emit_packet(
+                        r,
+                        domain=domain,
+                        description=description,
+                        failure_rate=failure_rate,
+                        frequency=len(failures),
+                        novelty_score=0.0,
+                        source="gap",
+                    )
 
     logger.info("=== GAP MODE: scan complete ===")
     return suite
@@ -403,15 +411,19 @@ def run_curiosity_mode(
                 f"(tier {current_tier}): '{question[:120]}'"
             )
 
-            _emit_packet(
-                r,
-                domain=domain,
-                description=description,
-                failure_rate=failure_rate,
-                frequency=1,
-                novelty_score=novelty_score,
-                source="curiosity",
-            )
+            depth = r.xlen(ASSESS_QUEUE)
+            if depth > 300:
+                logger.info("[assessor] ASSESS_QUEUE backpressure (%d items) — skipping emit for domain=%s", depth, domain)
+            else:
+                _emit_packet(
+                    r,
+                    domain=domain,
+                    description=description,
+                    failure_rate=failure_rate,
+                    frequency=1,
+                    novelty_score=novelty_score,
+                    source="curiosity",
+                )
 
         except Exception as exc:
             logger.error(

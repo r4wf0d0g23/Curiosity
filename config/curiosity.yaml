@@ -3,7 +3,7 @@
 server:
   host: localhost
   port: 8001
-  model: Qwen/Qwen3-72B
+  model: nemotron3-super
   checkpoint_dir: /data/curiosity/checkpoints
 
 bus:
@@ -16,6 +16,7 @@ bus:
     - SOLVE_QUEUE
     - VERIFY_QUEUE
     - MEMORIZE_QUEUE
+    - TRAIN_QUEUE
 
 memory:
   backend: chromadb
@@ -50,6 +51,26 @@ verifier:
   regression_suite_path: /data/curiosity/benchmarks/regression
   rollback_on_any_regression: true
   commit_requires_pass: true
+
+trainer:
+  base_model_path: nvidia/Nemotron-3-Super-120B-A12B-NVFP4
+  adapter_output_dir: ~/curiosity/adapters
+  vllm_base_url: http://localhost:8001
+  vllm_start_cmd: >-
+    python3 -m vllm.entrypoints.openai.api_server
+    --model nvidia/Nemotron-3-Super-120B-A12B-NVFP4
+    --served-model-name nemotron3-super
+    --host 0.0.0.0 --port 8001
+    --enable-chunked-prefill --max-num-seqs 4
+    --enable-lora --max-lora-rank 64
+  training_lock_ttl: 7200       # max 2h lock during training
+  default_lora_rank: 16
+  default_n_pairs: 100
+  default_epochs: 2
+  default_target_modules: ["q_proj", "v_proj"]
+  finetune_threshold:
+    min_failure_rate: 0.3       # only propose finetune above this rate
+    min_prompt_patch_failures: 2 # need at least 2 prompt_patch failures first
 
 memorizer:
   append_only: true             # never delete, only add
